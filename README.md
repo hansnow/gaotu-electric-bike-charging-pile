@@ -18,15 +18,20 @@
 
 ```
 gaotu-electric-bike-charging-pile/
-├── types.ts              # TypeScript 类型定义
-├── util.ts               # API 工具函数
-├── worker.ts             # Cloudflare Worker 主入口
-├── test-local.ts         # 本地测试脚本
-├── wrangler.toml         # Cloudflare Workers 配置
-├── tsconfig.json         # TypeScript 配置
-├── package.json          # 项目配置
-├── API.md               # API 文档
-└── README.md            # 项目文档
+├── types.ts                   # TypeScript 类型定义
+├── util.ts                    # API 工具函数
+├── worker.ts                  # Cloudflare Worker 主入口
+├── status-tracker.ts          # 状态跟踪器核心逻辑
+├── status-tracker.test.ts     # 状态跟踪器单元测试
+├── test-local.ts              # 本地测试脚本
+├── wrangler.toml              # Cloudflare Workers 配置
+├── tsconfig.json              # TypeScript 配置
+├── vitest.config.ts           # 测试配置
+├── package.json               # 项目配置
+├── README.md                  # 项目文档
+├── API.md                     # API 文档
+├── LOGGING.md                 # 日志系统文档
+└── TEST_REPORT.md             # 测试报告
 ```
 
 ## 快速开始
@@ -290,6 +295,66 @@ pnpm run deploy
 [triggers]
 crons = ["* * * * *"]  # 每分钟执行一次
 ```
+
+### 查看实时日志
+
+使用 `wrangler tail` 命令可以实时查看 Worker 的执行日志：
+
+```bash
+# 查看实时日志（基本格式）
+npx wrangler tail
+
+# 查看实时日志（美化格式）
+npx wrangler tail --format pretty
+
+# 查看实时日志（JSON 格式）
+npx wrangler tail --format json
+
+# 过滤特定内容
+npx wrangler tail --format pretty | grep "状态变化"
+```
+
+**日志输出示例：**
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔄 [定时任务] 开始执行状态检查
+⏰ UTC时间: 2025-10-11T15:30:00.000Z
+🕐 北京时间: 2025-10-11 23:30:00
+📍 开始检查状态: 2025-10-11 15:30:00
+  🔍 检查 [1号充电桩] (simId: 867997075125699)
+     📊 在线: 是 | 插座: 20个 (空闲8/占用12)
+     🔔 检测到 2 个状态变化:
+        🔌 插座#3: available → occupied
+        🔓 插座#5: occupied → available
+     💾 已更新最新状态到 KV
+  🔍 检查 [2号充电桩] (simId: 863060079195715)
+     📊 在线: 是 | 插座: 20个 (空闲10/占用10)
+     ✓ 无状态变化
+💾 已存储状态快照 (包含 2 个变化事件)
+💾 已存储 2 个状态变化事件
+📈 本次检查统计:
+   - KV 读取次数: 3
+   - KV 写入次数: 3
+   - 充电桩数量: 3
+   - 状态变化数: 2
+✅ [定时任务] 执行成功
+📊 检查结果: {
+  检查耗时: '1234ms',
+  充电桩数量: 3,
+  状态变化数: 2,
+  是否有变化: '是',
+  KV写入: '已写入'
+}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+日志特点：
+- 🎨 **视觉友好**：使用 emoji 和分隔线，易于识别
+- 📊 **信息完整**：包含时间、状态、变化详情、KV 操作统计
+- 🔍 **便于调试**：每次执行都有清晰的开始和结束标记
+- 📈 **性能监控**：记录执行耗时和 KV 读写次数
+
+**详细的日志系统说明请查看 [LOGGING.md](./LOGGING.md)**
 
 ### 存储结构
 

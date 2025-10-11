@@ -221,16 +221,34 @@ export default {
 
   // 定时任务处理函数（全天24小时，每分钟执行一次）
   async scheduled(event: ScheduledEvent, env: any, ctx: ExecutionContext): Promise<void> {
+    const startTime = Date.now();
     const scheduledTime = new Date(event.scheduledTime);
-    const beijingTime = new Date(scheduledTime.getTime() + 8 * 60 * 60 * 1000); // UTC+8
-    console.log('定时任务开始执行 (UTC):', scheduledTime.toISOString());
-    console.log('定时任务开始执行 (北京时间):', beijingTime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }));
+    
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🔄 [定时任务] 开始执行状态检查');
+    console.log('⏰ UTC时间:', scheduledTime.toISOString());
+    console.log('🕐 北京时间:', scheduledTime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }));
 
     try {
-      await performStatusCheck(env);
-      console.log('定时任务执行成功');
+      const result = await performStatusCheck(env);
+      const duration = Date.now() - startTime;
+      
+      console.log('✅ [定时任务] 执行成功');
+      console.log('📊 检查结果:', {
+        检查耗时: `${duration}ms`,
+        充电桩数量: result.stationsCount,
+        状态变化数: result.eventsCount,
+        是否有变化: result.hasAnyChange ? '是' : '否',
+        KV写入: result.hasAnyChange ? '已写入' : '跳过写入'
+      });
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     } catch (error) {
-      console.error('定时任务执行失败:', error);
+      const duration = Date.now() - startTime;
+      console.error('❌ [定时任务] 执行失败');
+      console.error('⏱️  耗时:', `${duration}ms`);
+      console.error('💥 错误:', error instanceof Error ? error.message : String(error));
+      console.error('📋 错误堆栈:', error instanceof Error ? error.stack : 'N/A');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     }
   },
 };
@@ -374,14 +392,18 @@ async function performStatusCheck(env: any): Promise<any> {
   const timestamp = Date.now();
   const timeString = getTimeString(new Date(timestamp));
 
-  console.log(`开始执行状态检查: ${timeString}`);
+  console.log(`📍 开始检查状态: ${timeString}`);
 
   const currentStations: StationStatus[] = [];
   const allEvents: StatusChangeEvent[] = [];
   let hasAnyChange = false; // 标记是否有任何状态变化
+  let kvReadCount = 0;
+  let kvWriteCount = 0;
 
   for (const station of CHARGING_STATIONS) {
     try {
+      console.log(`  🔍 检查 [${station.name}] (simId: ${station.simId})`);
+      
       // 获取充电桩详情
       const detailParams: DeviceDetailRequest = {
         simId: station.simId,
@@ -395,6 +417,8 @@ async function performStatusCheck(env: any): Promise<any> {
 
       if (detail && detail.device) {
         const sockets = parsePortStatus(detail.ports, detail.device.portNumber);
+        const availableCount = sockets.filter(s => s.status === 'available').length;
+        const occupiedCount = sockets.filter(s => s.status === 'occupied').length;
 
         const currentStatus: StationStatus = {
           id: station.id,
@@ -407,9 +431,11 @@ async function performStatusCheck(env: any): Promise<any> {
         };
 
         currentStations.push(currentStatus);
+        console.log(`     📊 在线: ${currentStatus.online ? '是' : '否'} | 插座: ${sockets.length}个 (空闲${availableCount}/占用${occupiedCount})`);
 
         // 获取上一次的状态
         const previousStatus = await getLatestStatus(env, station.id);
+        kvReadCount++;
 
         let stationHasChange = false;
 
@@ -428,30 +454,34 @@ async function performStatusCheck(env: any): Promise<any> {
             hasAnyChange = true;
             allEvents.push(...changes);
             
-            console.log(`充电桩 ${station.name} 检测到 ${changes.length} 个状态变化`);
+            console.log(`     🔔 检测到 ${changes.length} 个状态变化:`);
             changes.forEach(change => {
-              console.log(`  插座 ${change.socketId}: ${change.oldStatus} → ${change.newStatus} (${change.timeString})`);
+              const statusEmoji = change.newStatus === 'occupied' ? '🔌' : '🔓';
+              console.log(`        ${statusEmoji} 插座#${change.socketId}: ${change.oldStatus} → ${change.newStatus}`);
             });
+          } else {
+            console.log(`     ✓ 无状态变化`);
           }
         } else {
           // 如果是第一次获取状态，也需要存储
           stationHasChange = true;
           hasAnyChange = true;
-          console.log(`充电桩 ${station.name} 首次获取状态`);
+          console.log(`     🆕 首次获取状态，将写入 KV`);
         }
 
         // 只在状态变化时存储最新状态
         if (stationHasChange) {
           await storeLatestStatus(env, currentStatus);
-          console.log(`已更新充电桩 ${station.name} 的最新状态到 KV`);
+          kvWriteCount++;
+          console.log(`     💾 已更新最新状态到 KV`);
         }
 
       } else {
-        console.warn(`充电桩 ${station.name} 获取详情失败`);
+        console.warn(`     ⚠️  获取详情失败`);
       }
 
     } catch (error) {
-      console.error(`处理充电桩 ${station.name} 时出错:`, error);
+      console.error(`     ❌ 处理出错:`, error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -464,16 +494,25 @@ async function performStatusCheck(env: any): Promise<any> {
     };
 
     await storeSnapshot(env, snapshot);
-    console.log(`已存储状态快照到 KV (有 ${allEvents.length} 个状态变化事件)`);
+    kvWriteCount++;
+    console.log(`💾 已存储状态快照 (包含 ${allEvents.length} 个变化事件)`);
   } else {
-    console.log(`无状态变化，跳过快照存储（节省 KV 写入次数）`);
+    console.log(`⏭️  无状态变化，跳过快照存储`);
   }
 
   // 存储状态变化事件（已有检查：allEvents.length > 0）
   if (allEvents.length > 0) {
     await storeEvents(env, allEvents);
-    console.log(`已存储 ${allEvents.length} 个状态变化事件到 KV`);
+    kvWriteCount++;
+    console.log(`💾 已存储 ${allEvents.length} 个状态变化事件`);
   }
+
+  // 输出统计信息
+  console.log(`📈 本次检查统计:`);
+  console.log(`   - KV 读取次数: ${kvReadCount}`);
+  console.log(`   - KV 写入次数: ${kvWriteCount}`);
+  console.log(`   - 充电桩数量: ${currentStations.length}`);
+  console.log(`   - 状态变化数: ${allEvents.length}`);
 
   return {
     timestamp: timestamp,
@@ -481,6 +520,8 @@ async function performStatusCheck(env: any): Promise<any> {
     stationsCount: currentStations.length,
     eventsCount: allEvents.length,
     hasAnyChange: hasAnyChange,
+    kvReadCount: kvReadCount,
+    kvWriteCount: kvWriteCount,
     stations: currentStations,
     events: allEvents
   };
