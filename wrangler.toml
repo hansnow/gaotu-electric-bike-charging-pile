@@ -7,5 +7,9 @@ workers_dev = false
 pattern = "electric-bike-charging-pile.hansnow.me"
 custom_domain = true
 
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
 [vars]
 # 环境变量可以在这里定义

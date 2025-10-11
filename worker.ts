@@ -6,8 +6,22 @@ import { NearbyDevicesRequest, DeviceDetailRequest } from './types';
  * 提供充电桩查询和统计功能
  */
 export default {
-  async fetch(request: Request, env: unknown, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // 处理静态资源请求
+    if (url.pathname === '/' || url.pathname === '/index.html') {
+      try {
+        return await env.ASSETS.fetch(new Request(request.url));
+      } catch (error) {
+        return new Response('静态资源未找到', {
+          status: 404,
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+          },
+        });
+      }
+    }
 
     // 处理 CORS
     if (request.method === 'OPTIONS') {

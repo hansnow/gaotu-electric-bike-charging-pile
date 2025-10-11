@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>充电桩状态监控</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .status-summary {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .legend-color.available {
+            background-color: #27ae60;
+        }
+
+        .legend-color.occupied {
+            background-color: #e74c3c;
+        }
+
+        .charging-stations {
+            display: grid;
+            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        }
+
+        .station {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .station-header {
+            text-align: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #ecf0f1;
+        }
+
+        .station-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .station-stats {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
+        .sockets-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        .socket {
+            aspect-ratio: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            position: relative;
+            min-height: 50px;
+        }
+
+        .socket:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        .socket.available {
+            background-color: #27ae60;
+            color: white;
+        }
+
+        .socket.occupied {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        .socket-number {
+            font-size: 11px;
+            margin-bottom: 2px;
+        }
+
+        .socket-status {
+            font-size: 9px;
+            opacity: 0.9;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 16px;
+            color: #7f8c8d;
+        }
+
+        .error {
+            text-align: center;
+            padding: 40px;
+            font-size: 16px;
+            color: #e74c3c;
+        }
+
+        .refresh-btn {
+            display: block;
+            margin: 20px auto;
+            padding: 12px 24px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            background-color: #2980b9;
+        }
+
+        .refresh-btn:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .legend {
+                gap: 15px;
+            }
+
+            .charging-stations {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+
+            .station {
+                padding: 15px;
+            }
+
+            .sockets-grid {
+                gap: 6px;
+            }
+
+            .socket {
+                min-height: 45px;
+                font-size: 11px;
+            }
+
+            .socket-number {
+                font-size: 10px;
+            }
+
+            .socket-status {
+                font-size: 8px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 10px;
+            }
+
+            .header h1 {
+                font-size: 18px;
+            }
+
+            .legend {
+                gap: 10px;
+            }
+
+            .legend-item {
+                font-size: 14px;
+            }
+
+            .sockets-grid {
+                gap: 4px;
+            }
+
+            .socket {
+                min-height: 40px;
+            }
+
+            .socket-number {
+                font-size: 9px;
+            }
+
+            .socket-status {
+                font-size: 7px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔌 电动车充电桩状态监控</h1>
+        </div>
+
+        <div class="status-summary">
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color available"></div>
+                    <span>空闲</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color occupied"></div>
+                    <span>占用</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">正在加载充电桩状态...</div>
+        <div id="error" class="error" style="display: none;">加载失败，请稍后重试</div>
+        <div id="content" style="display: none;">
+            <div class="charging-stations" id="stations"></div>
+            <button class="refresh-btn" onclick="refreshData()">刷新状态</button>
+        </div>
+    </div>
+
+    <script>
+        // 充电桩配置
+        const CHARGING_STATIONS = [
+            {
+                id: 1,
+                name: "1号充电桩",
+                simId: "867997075125699"
+            },
+            {
+                id: 2,
+                name: "2号充电桩",
+                simId: "863060079195715"
+            },
+            {
+                id: 3,
+                name: "3号充电桩",
+                simId: "863060079153326"
+            }
+        ];
+
+        // 获取充电桩详情
+        async function getStationDetail(simId) {
+            try {
+                const response = await fetch('/detail', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        simId: simId,
+                        mapType: 2,
+                        chargeTypeTag: 0,
+                        appEntrance: 1,
+                        version: 'new'
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                return result;
+            } catch (error) {
+                console.error(`获取充电桩 ${simId} 详情失败:`, error);
+                throw error;
+            }
+        }
+
+        // 解析充电桩端口状态
+        function parsePortStatus(ports, totalPorts) {
+            const sockets = [];
+            // ports[0] 固定为0，无意义；ports[1]开始代表插座状态，0=空闲，1=占用
+            const portStatuses = ports.slice(1);
+
+            for (let i = 0; i < Math.min(totalPorts, portStatuses.length); i++) {
+                sockets.push({
+                    id: i + 1,
+                    status: portStatuses[i] === 0 ? 'available' : 'occupied'
+                });
+            }
+
+            // 如果端口数量超过数组长度，剩余端口设为空闲
+            for (let i = portStatuses.length; i < totalPorts; i++) {
+                sockets.push({
+                    id: i + 1,
+                    status: 'available'
+                });
+            }
+
+            return sockets;
+        }
+
+        // 获取所有充电桩数据
+        async function fetchStationData() {
+            const stations = [];
+
+            for (const station of CHARGING_STATIONS) {
+                try {
+                    const result = await getStationDetail(station.simId);
+
+                    if (result.success && result.data) {
+                        const sockets = parsePortStatus(result.data.ports, result.data.device.portNumber);
+
+                        stations.push({
+                            id: station.id,
+                            name: station.name,
+                            simId: station.simId,
+                            sockets: sockets,
+                            online: result.data.device.online === 1,
+                            address: result.data.device.address,
+                            errorMsg: result.data.errorMsg
+                        });
+                    } else {
+                        // 如果获取失败，显示离线状态
+                        stations.push({
+                            id: station.id,
+                            name: station.name,
+                            simId: station.simId,
+                            sockets: [],
+                            online: false,
+                            address: '未知',
+                            errorMsg: result.error || '获取数据失败',
+                            error: true
+                        });
+                    }
+                } catch (error) {
+                    // 网络错误或其他异常
+                    stations.push({
+                        id: station.id,
+                        name: station.name,
+                        simId: station.simId,
+                        sockets: [],
+                        online: false,
+                        address: '未知',
+                        errorMsg: error.message,
+                        error: true
+                    });
+                }
+            }
+
+            return stations;
+        }
+
+        function renderStation(station) {
+            const availableCount = station.sockets.filter(s => s.status === 'available').length;
+            const occupiedCount = station.sockets.filter(s => s.status === 'occupied').length;
+
+            // 如果充电桩离线或有错误，显示错误信息
+            if (station.error || !station.online) {
+                return `
+                    <div class="station offline">
+                        <div class="station-header">
+                            <div class="station-title">${station.name} <span style="color: #e74c3c;">🔴 离线</span></div>
+                            <div class="station-stats">
+                                <span style="color: #e74c3c;">${station.errorMsg}</span>
+                            </div>
+                        </div>
+                        <div class="sockets-grid">
+                            ${Array.from({length: 20}, (_, i) => `
+                                <div class="socket offline" style="background-color: #95a5a6; cursor: not-allowed;">
+                                    <div class="socket-number">${i + 1}</div>
+                                    <div class="socket-status">离线</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="station">
+                    <div class="station-header">
+                        <div class="station-title">${station.name} <span style="color: #27ae60;">🟢 在线</span></div>
+                        <div class="station-stats">
+                            <span>空闲: ${availableCount}</span>
+                            <span>占用: ${occupiedCount}</span>
+                            <span>总计: ${station.sockets.length}</span>
+                        </div>
+                        <div class="station-address" style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                            📍 ${station.address}
+                        </div>
+                    </div>
+                    <div class="sockets-grid">
+                        ${station.sockets.map(socket => `
+                            <div class="socket ${socket.status}"
+                                 onclick="toggleSocketStatus(${station.id}, ${socket.id})"
+                                 title="插座 ${socket.id} - ${socket.status === 'available' ? '空闲' : '占用'}">
+                                <div class="socket-number">${socket.id}</div>
+                                <div class="socket-status">${socket.status === 'available' ? '空闲' : '占用'}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderStations(stations) {
+            const stationsContainer = document.getElementById('stations');
+            stationsContainer.innerHTML = stations.map(station => renderStation(station)).join('');
+        }
+
+        async function loadData() {
+            try {
+                const stations = await fetchStationData();
+                renderStations(stations);
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+            } catch (error) {
+                console.error('加载数据失败:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+
+        async function refreshData() {
+            const refreshBtn = document.querySelector('.refresh-btn');
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = '刷新中...';
+
+            try {
+                await loadData();
+            } catch (error) {
+                console.error('刷新数据失败:', error);
+            } finally {
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = '刷新状态';
+            }
+        }
+
+        function toggleSocketStatus(stationId, socketId) {
+            // 这里可以添加与后端API的交互
+            console.log(`切换充电桩 ${stationId} 插座 ${socketId} 的状态`);
+        }
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadData();
+
+            // 每30秒自动刷新一次
+            setInterval(async () => {
+                await refreshData();
+            }, 30000);
+        });
+    </script>
+</body>
+</html>
