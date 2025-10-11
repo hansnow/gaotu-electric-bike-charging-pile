@@ -1,0 +1,23 @@
+{
+  "name": "gaotu-electric-bike-charging-pile",
+  "version": "1.0.0",
+  "description": "Electric bike charging pile API service built with Cloudflare Workers",
+  "main": "worker.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "test": "echo \"Run tests by calling the /test endpoint on the deployed worker\" && exit 0"
+  },
+  "keywords": ["cloudflare-workers", "electric-bike", "charging-pile", "api"],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.13.1",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "wrangler": "^4.42.2"
+  }
+}

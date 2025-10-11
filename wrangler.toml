@@ -1,0 +1,11 @@
+name = "gaotu-electric-bike-charging-pile"
+main = "worker.ts"
+compatibility_date = "2024-01-01"
+workers_dev = false
+
+routes = [
+  { pattern = "electric-bike-charging-pile.hansnow.me/*", zone_name = "hansnow.me" }
+]
+
+[vars]
+# 环境变量可以在这里定义
