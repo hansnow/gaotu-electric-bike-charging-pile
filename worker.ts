@@ -219,25 +219,12 @@ export default {
     }
   },
 
-  // 定时任务处理函数（UTC时间 0-10点执行，对应北京时间 8-18点）
+  // 定时任务处理函数（全天24小时，每分钟执行一次）
   async scheduled(event: ScheduledEvent, env: any, ctx: ExecutionContext): Promise<void> {
     const scheduledTime = new Date(event.scheduledTime);
-    console.log('定时任务开始执行 (UTC):', scheduledTime.toISOString());
-
-    // 检查是否在北京时间工作时间范围内 (08:30-18:30)
     const beijingTime = new Date(scheduledTime.getTime() + 8 * 60 * 60 * 1000); // UTC+8
-    const beijingHour = beijingTime.getHours();
-    const beijingMinute = beijingTime.getMinutes();
-    const currentTimeInMinutes = beijingHour * 60 + beijingMinute;
-    const startTime = 8 * 60 + 30; // 08:30 = 510 minutes
-    const endTime = 18 * 60 + 30;   // 18:30 = 1110 minutes
-
-    if (currentTimeInMinutes < startTime || currentTimeInMinutes > endTime) {
-      console.log(`当前北京时间 ${beijingTime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} 不在工作时间范围内 (08:30-18:30)，跳过执行`);
-      return;
-    }
-
-    console.log(`当前北京时间 ${beijingTime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} 在工作时间范围内，开始执行状态检查`);
+    console.log('定时任务开始执行 (UTC):', scheduledTime.toISOString());
+    console.log('定时任务开始执行 (北京时间):', beijingTime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }));
 
     try {
       await performStatusCheck(env);
@@ -381,6 +368,7 @@ async function runTestFlow(): Promise<any> {
 /**
  * 执行状态检查的核心函数
  * 获取所有充电桩的当前状态，检测变化，并存储到KV中
+ * 优化策略：只在状态真正变化时才写入KV，以节省免费套餐的写入次数限制
  */
 async function performStatusCheck(env: any): Promise<any> {
   const timestamp = Date.now();
@@ -390,6 +378,7 @@ async function performStatusCheck(env: any): Promise<any> {
 
   const currentStations: StationStatus[] = [];
   const allEvents: StatusChangeEvent[] = [];
+  let hasAnyChange = false; // 标记是否有任何状态变化
 
   for (const station of CHARGING_STATIONS) {
     try {
@@ -422,6 +411,8 @@ async function performStatusCheck(env: any): Promise<any> {
         // 获取上一次的状态
         const previousStatus = await getLatestStatus(env, station.id);
 
+        let stationHasChange = false;
+
         if (previousStatus && previousStatus.sockets) {
           // 检测状态变化
           const changes = detectStatusChanges(
@@ -432,18 +423,28 @@ async function performStatusCheck(env: any): Promise<any> {
             timestamp
           );
 
-          allEvents.push(...changes);
-
           if (changes.length > 0) {
+            stationHasChange = true;
+            hasAnyChange = true;
+            allEvents.push(...changes);
+            
             console.log(`充电桩 ${station.name} 检测到 ${changes.length} 个状态变化`);
             changes.forEach(change => {
               console.log(`  插座 ${change.socketId}: ${change.oldStatus} → ${change.newStatus} (${change.timeString})`);
             });
           }
+        } else {
+          // 如果是第一次获取状态，也需要存储
+          stationHasChange = true;
+          hasAnyChange = true;
+          console.log(`充电桩 ${station.name} 首次获取状态`);
         }
 
-        // 存储最新状态
-        await storeLatestStatus(env, currentStatus);
+        // 只在状态变化时存储最新状态
+        if (stationHasChange) {
+          await storeLatestStatus(env, currentStatus);
+          console.log(`已更新充电桩 ${station.name} 的最新状态到 KV`);
+        }
 
       } else {
         console.warn(`充电桩 ${station.name} 获取详情失败`);
@@ -454,8 +455,8 @@ async function performStatusCheck(env: any): Promise<any> {
     }
   }
 
-  // 存储状态快照
-  if (currentStations.length > 0) {
+  // 只在有任何状态变化时存储状态快照
+  if (hasAnyChange && currentStations.length > 0) {
     const snapshot: StatusSnapshot = {
       timestamp: timestamp,
       timeString: timeString,
@@ -463,11 +464,15 @@ async function performStatusCheck(env: any): Promise<any> {
     };
 
     await storeSnapshot(env, snapshot);
+    console.log(`已存储状态快照到 KV (有 ${allEvents.length} 个状态变化事件)`);
+  } else {
+    console.log(`无状态变化，跳过快照存储（节省 KV 写入次数）`);
   }
 
-  // 存储状态变化事件
+  // 存储状态变化事件（已有检查：allEvents.length > 0）
   if (allEvents.length > 0) {
     await storeEvents(env, allEvents);
+    console.log(`已存储 ${allEvents.length} 个状态变化事件到 KV`);
   }
 
   return {
@@ -475,6 +480,7 @@ async function performStatusCheck(env: any): Promise<any> {
     timeString: timeString,
     stationsCount: currentStations.length,
     eventsCount: allEvents.length,
+    hasAnyChange: hasAnyChange,
     stations: currentStations,
     events: allEvents
   };
