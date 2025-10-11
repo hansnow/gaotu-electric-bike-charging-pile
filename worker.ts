@@ -1,5 +1,19 @@
 import { getNearbyDevices, getDeviceDetail } from './util';
 import { NearbyDevicesRequest, DeviceDetailRequest } from './types';
+import {
+  CHARGING_STATIONS,
+  parsePortStatus,
+  detectStatusChanges,
+  storeSnapshot,
+  storeEvents,
+  getLatestStatus,
+  storeLatestStatus,
+  getEvents,
+  getTimeString,
+  StationStatus,
+  StatusChangeEvent,
+  StatusSnapshot
+} from './status-tracker';
 
 /**
  * Cloudflare Worker 入口文件
@@ -112,6 +126,67 @@ export default {
         });
       }
 
+      // 提供状态变化事件查询接口
+      if (url.pathname === '/events' && request.method === 'GET') {
+        const date = url.searchParams.get('date');
+        const targetDate = date || new Date().toISOString().substring(0, 10);
+
+        try {
+          const events = await getEvents(env, targetDate);
+          return new Response(JSON.stringify({
+            success: true,
+            date: targetDate,
+            events: events
+          }), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        } catch (error) {
+          console.error('获取事件失败:', error);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }), {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+      }
+
+      // 手动触发状态检查的接口（用于测试）
+      if (url.pathname === '/check-status' && request.method === 'POST') {
+        try {
+          const result = await performStatusCheck(env);
+          return new Response(JSON.stringify({
+            success: true,
+            message: '状态检查完成',
+            result
+          }), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        } catch (error) {
+          console.error('状态检查失败:', error);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }), {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+      }
+
       // 默认响应
       return new Response(JSON.stringify({
         message: 'Electric Bike Charging Pile API',
@@ -119,6 +194,8 @@ export default {
           { path: '/test', method: 'GET', description: 'Run test flow' },
           { path: '/nearby', method: 'POST', description: 'Get nearby charging devices' },
           { path: '/detail', method: 'POST', description: 'Get device detail' },
+          { path: '/events', method: 'GET', description: 'Get status change events' },
+          { path: '/check-status', method: 'POST', description: 'Manual status check' },
         ]
       }), {
         headers: {
@@ -139,6 +216,34 @@ export default {
           'Access-Control-Allow-Origin': '*',
         },
       });
+    }
+  },
+
+  // 定时任务处理函数（UTC时间 0-10点执行，对应北京时间 8-18点）
+  async scheduled(event: ScheduledEvent, env: any, ctx: ExecutionContext): Promise<void> {
+    const scheduledTime = new Date(event.scheduledTime);
+    console.log('定时任务开始执行 (UTC):', scheduledTime.toISOString());
+
+    // 检查是否在北京时间工作时间范围内 (08:30-18:30)
+    const beijingTime = new Date(scheduledTime.getTime() + 8 * 60 * 60 * 1000); // UTC+8
+    const beijingHour = beijingTime.getHours();
+    const beijingMinute = beijingTime.getMinutes();
+    const currentTimeInMinutes = beijingHour * 60 + beijingMinute;
+    const startTime = 8 * 60 + 30; // 08:30 = 510 minutes
+    const endTime = 18 * 60 + 30;   // 18:30 = 1110 minutes
+
+    if (currentTimeInMinutes < startTime || currentTimeInMinutes > endTime) {
+      console.log(`当前北京时间 ${beijingTime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} 不在工作时间范围内 (08:30-18:30)，跳过执行`);
+      return;
+    }
+
+    console.log(`当前北京时间 ${beijingTime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} 在工作时间范围内，开始执行状态检查`);
+
+    try {
+      await performStatusCheck(env);
+      console.log('定时任务执行成功');
+    } catch (error) {
+      console.error('定时任务执行失败:', error);
     }
   },
 };
@@ -271,4 +376,106 @@ async function runTestFlow(): Promise<any> {
       error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
+}
+
+/**
+ * 执行状态检查的核心函数
+ * 获取所有充电桩的当前状态，检测变化，并存储到KV中
+ */
+async function performStatusCheck(env: any): Promise<any> {
+  const timestamp = Date.now();
+  const timeString = getTimeString(new Date(timestamp));
+
+  console.log(`开始执行状态检查: ${timeString}`);
+
+  const currentStations: StationStatus[] = [];
+  const allEvents: StatusChangeEvent[] = [];
+
+  for (const station of CHARGING_STATIONS) {
+    try {
+      // 获取充电桩详情
+      const detailParams: DeviceDetailRequest = {
+        simId: station.simId,
+        mapType: 2,
+        chargeTypeTag: 0,
+        appEntrance: 1,
+        version: 'new'
+      };
+
+      const detail = await getDeviceDetail(detailParams);
+
+      if (detail && detail.device) {
+        const sockets = parsePortStatus(detail.ports, detail.device.portNumber);
+
+        const currentStatus: StationStatus = {
+          id: station.id,
+          name: station.name,
+          simId: station.simId,
+          sockets: sockets,
+          online: detail.device.online === 1,
+          address: detail.device.address || '未知地址',
+          timestamp: timestamp
+        };
+
+        currentStations.push(currentStatus);
+
+        // 获取上一次的状态
+        const previousStatus = await getLatestStatus(env, station.id);
+
+        if (previousStatus && previousStatus.sockets) {
+          // 检测状态变化
+          const changes = detectStatusChanges(
+            previousStatus.sockets,
+            currentStatus.sockets,
+            station.id,
+            station.name,
+            timestamp
+          );
+
+          allEvents.push(...changes);
+
+          if (changes.length > 0) {
+            console.log(`充电桩 ${station.name} 检测到 ${changes.length} 个状态变化`);
+            changes.forEach(change => {
+              console.log(`  插座 ${change.socketId}: ${change.oldStatus} → ${change.newStatus} (${change.timeString})`);
+            });
+          }
+        }
+
+        // 存储最新状态
+        await storeLatestStatus(env, currentStatus);
+
+      } else {
+        console.warn(`充电桩 ${station.name} 获取详情失败`);
+      }
+
+    } catch (error) {
+      console.error(`处理充电桩 ${station.name} 时出错:`, error);
+    }
+  }
+
+  // 存储状态快照
+  if (currentStations.length > 0) {
+    const snapshot: StatusSnapshot = {
+      timestamp: timestamp,
+      timeString: timeString,
+      stations: currentStations
+    };
+
+    await storeSnapshot(env, snapshot);
+  }
+
+  // 存储状态变化事件
+  if (allEvents.length > 0) {
+    await storeEvents(env, allEvents);
+  }
+
+  return {
+    timestamp: timestamp,
+    timeString: timeString,
+    stationsCount: currentStations.length,
+    eventsCount: allEvents.length,
+    stations: currentStations,
+    events: allEvents
+  };
 }

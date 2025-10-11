@@ -11,5 +11,13 @@ custom_domain = true
 directory = "./public"
 binding = "ASSETS"
 
+[[kv_namespaces]]
+binding = "CHARGING_EVENTS"
+id = "be17b03b6713467f9114719918a4efb2"
+preview_id = "7b26d5dbec2d4bb7996b0910d5487b78"
+
 [vars]
 # 环境变量可以在这里定义
+
+[[triggers]]
+crons = ["* 0-10 * * *"]

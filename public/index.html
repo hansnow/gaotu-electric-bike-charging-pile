@@ -263,6 +263,184 @@
                 font-size: 7px;
             }
         }
+
+        /* 事件相关样式 */
+        .events-section {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #ecf0f1;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .section-header h2 {
+            font-size: 20px;
+            color: #2c3e50;
+            margin: 0;
+        }
+
+        .events-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .date-input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .events-container {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .events-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .event-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .event-item:hover {
+            transform: translateX(2px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .event-item.occupied {
+            border-left-color: #e74c3c;
+        }
+
+        .event-item.available {
+            border-left-color: #27ae60;
+        }
+
+        .event-time {
+            font-size: 12px;
+            color: #7f8c8d;
+            min-width: 140px;
+        }
+
+        .event-content {
+            flex: 1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .event-station {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .event-socket {
+            background: #ecf0f1;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .event-change {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .event-arrow {
+            color: #95a5a6;
+            font-weight: bold;
+        }
+
+        .no-events {
+            text-align: center;
+            padding: 40px 20px;
+            color: #7f8c8d;
+            font-size: 16px;
+        }
+
+        .events-loading {
+            text-align: center;
+            padding: 20px;
+            color: #7f8c8d;
+        }
+
+        .events-error {
+            text-align: center;
+            padding: 20px;
+            color: #e74c3c;
+            background: #fdf2f2;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        @media (max-width: 768px) {
+            .section-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .events-controls {
+                width: 100%;
+                justify-content: flex-end;
+            }
+
+            .event-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+
+            .event-content {
+                width: 100%;
+                flex-wrap: wrap;
+            }
+
+            .event-time {
+                min-width: auto;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .events-section {
+                padding: 15px;
+            }
+
+            .section-header h2 {
+                font-size: 18px;
+            }
+
+            .event-item {
+                padding: 10px 12px;
+            }
+
+            .event-content {
+                gap: 10px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -289,6 +467,18 @@
         <div id="content" style="display: none;">
             <div class="charging-stations" id="stations"></div>
             <button class="refresh-btn" onclick="refreshData()">刷新状态</button>
+
+            <!-- 状态变化事件区域 -->
+            <div class="events-section" style="margin-top: 40px;">
+                <div class="section-header">
+                    <h2>📊 状态变化事件</h2>
+                    <div class="events-controls">
+                        <input type="date" id="eventDate" class="date-input">
+                        <button class="refresh-btn" onclick="loadEvents()" style="margin: 0; padding: 8px 16px; font-size: 12px;">查询事件</button>
+                    </div>
+                </div>
+                <div id="events-container" class="events-container"></div>
+            </div>
         </div>
     </div>
 
@@ -510,14 +700,105 @@
             console.log(`切换充电桩 ${stationId} 插座 ${socketId} 的状态`);
         }
 
+        // 获取状态变化事件
+        async function getEvents(date) {
+            try {
+                const response = await fetch(`/events?date=${date}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const result = await response.json();
+                return result;
+            } catch (error) {
+                console.error('获取事件失败:', error);
+                throw error;
+            }
+        }
+
+        // 渲染单个事件
+        function renderEvent(event) {
+            const oldStatusText = event.oldStatus === 'available' ? '空闲' : '占用';
+            const newStatusText = event.newStatus === 'available' ? '空闲' : '占用';
+            const oldStatusClass = event.oldStatus;
+            const newStatusClass = event.newStatus;
+
+            return `
+                <div class="event-item ${newStatusClass}">
+                    <div class="event-time">${event.timeString}</div>
+                    <div class="event-content">
+                        <div class="event-station">${event.stationName}</div>
+                        <div class="event-socket">插座 ${event.socketId}</div>
+                        <div class="event-change">
+                            <span class="status-${oldStatusClass}">${oldStatusText}</span>
+                            <span class="event-arrow">→</span>
+                            <span class="status-${newStatusClass}">${newStatusText}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 渲染事件列表
+        function renderEvents(events) {
+            const container = document.getElementById('events-container');
+
+            if (!events || events.length === 0) {
+                container.innerHTML = '<div class="no-events">暂无状态变化事件</div>';
+                return;
+            }
+
+            const eventsHtml = events.map(event => renderEvent(event)).join('');
+            container.innerHTML = `<div class="events-list">${eventsHtml}</div>`;
+        }
+
+        // 加载事件数据
+        async function loadEvents() {
+            const dateInput = document.getElementById('eventDate');
+            const container = document.getElementById('events-container');
+            const targetDate = dateInput.value || new Date().toISOString().substring(0, 10);
+
+            container.innerHTML = '<div class="events-loading">正在加载事件数据...</div>';
+
+            try {
+                const result = await getEvents(targetDate);
+
+                if (result.success) {
+                    renderEvents(result.events);
+                    console.log(`成功加载 ${targetDate} 的事件数据，共 ${result.events.length} 条`);
+                } else {
+                    container.innerHTML = `<div class="events-error">加载失败: ${result.error}</div>`;
+                }
+            } catch (error) {
+                console.error('加载事件失败:', error);
+                container.innerHTML = `<div class="events-error">加载失败: ${error.message}</div>`;
+            }
+        }
+
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', function() {
             loadData();
 
-            // 每30秒自动刷新一次
+            // 设置日期输入框的默认值为今天
+            const dateInput = document.getElementById('eventDate');
+            const today = new Date().toISOString().substring(0, 10);
+            dateInput.value = today;
+            dateInput.max = today; // 不能选择未来日期
+
+            // 加载今天的事件
+            loadEvents();
+
+            // 监听日期变化
+            dateInput.addEventListener('change', loadEvents);
+
+            // 每30秒自动刷新一次充电桩状态
             setInterval(async () => {
                 await refreshData();
             }, 30000);
+
+            // 每5分钟自动刷新一次事件数据
+            setInterval(async () => {
+                await loadEvents();
+            }, 300000);
         });
     </script>
 </body>
