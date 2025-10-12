@@ -19,5 +19,5 @@ preview_id = "7b26d5dbec2d4bb7996b0910d5487b78"
 [vars]
 # 环境变量可以在这里定义
 
-[[triggers]]
+[triggers]
 crons = ["* * * * *"]  # 每分钟执行一次（全天24小时）
