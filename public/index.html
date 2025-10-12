@@ -715,16 +715,37 @@
             }
         }
 
+        // 将UTC时间字符串转换为北京时间显示
+        function formatBeijingTime(utcTimeString) {
+            // utcTimeString 格式: "2025-10-11 15:44:45"
+            // 将其转换为ISO格式以便Date对象解析
+            const isoString = utcTimeString.replace(' ', 'T') + 'Z';
+            const date = new Date(isoString);
+            
+            // 转换为北京时间字符串
+            return date.toLocaleString('zh-CN', { 
+                timeZone: 'Asia/Shanghai',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+        }
+
         // 渲染单个事件
         function renderEvent(event) {
             const oldStatusText = event.oldStatus === 'available' ? '空闲' : '占用';
             const newStatusText = event.newStatus === 'available' ? '空闲' : '占用';
             const oldStatusClass = event.oldStatus;
             const newStatusClass = event.newStatus;
+            const beijingTime = formatBeijingTime(event.timeString);
 
             return `
                 <div class="event-item ${newStatusClass}">
-                    <div class="event-time">${event.timeString}</div>
+                    <div class="event-time">${beijingTime}</div>
                     <div class="event-content">
                         <div class="event-station">${event.stationName}</div>
                         <div class="event-socket">插座 ${event.socketId}</div>
