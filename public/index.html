@@ -134,6 +134,10 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
 
+        .socket:active {
+            transform: translateY(0);
+        }
+
         .socket.available {
             background-color: #27ae60;
             color: white;
@@ -441,6 +445,169 @@
                 gap: 10px;
             }
         }
+
+        /* 弹窗样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: auto;
+            padding: 0;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            padding: 20px;
+            background-color: #3498db;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+        }
+
+        .modal-header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            font-size: 18px;
+        }
+
+        .modal-refresh-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .modal-refresh-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .modal-refresh-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .modal-close {
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+            line-height: 1;
+            transition: transform 0.2s ease;
+        }
+
+        .modal-close:hover {
+            transform: scale(1.2);
+        }
+
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .socket-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .socket-info-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .socket-info-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .socket-info-label {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .socket-info-value {
+            color: #7f8c8d;
+        }
+
+        .modal-events-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #ecf0f1;
+        }
+
+        @media (max-width: 768px) {
+            .modal-content {
+                width: 95%;
+                max-height: 90vh;
+            }
+
+            .modal-header {
+                padding: 15px;
+            }
+
+            .modal-header-left {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .modal-refresh-btn {
+                padding: 5px 10px;
+                font-size: 11px;
+            }
+
+            .modal-body {
+                padding: 15px;
+            }
+
+            .socket-info-item {
+                font-size: 13px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -478,6 +645,24 @@
                     </div>
                 </div>
                 <div id="events-container" class="events-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 插座事件弹窗 -->
+    <div id="socketModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <h3 id="modalTitle">插座状态变化历史</h3>
+                    <button class="modal-refresh-btn" id="modalRefreshBtn" onclick="refreshSocketEvents()">🔄 刷新</button>
+                </div>
+                <button class="modal-close" onclick="closeSocketModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="socket-info" id="socketInfo"></div>
+                <div class="modal-events-title">状态变化历史（最近7天）</div>
+                <div id="socketEvents"></div>
             </div>
         </div>
     </div>
@@ -622,7 +807,7 @@
                         </div>
                         <div class="sockets-grid">
                             ${Array.from({length: 20}, (_, i) => `
-                                <div class="socket offline" style="background-color: #95a5a6; cursor: not-allowed;">
+                                <div class="socket offline" style="background-color: #95a5a6; cursor: not-allowed;" title="充电桩离线，无法查看状态历史">
                                     <div class="socket-number">${i + 1}</div>
                                     <div class="socket-status">离线</div>
                                 </div>
@@ -649,7 +834,7 @@
                         ${station.sockets.map(socket => `
                             <div class="socket ${socket.status}"
                                  onclick="toggleSocketStatus(${station.id}, ${socket.id})"
-                                 title="插座 ${socket.id} - ${socket.status === 'available' ? '空闲' : '占用'}">
+                                 title="点击查看插座 ${socket.id} 的状态变化历史">
                                 <div class="socket-number">${socket.id}</div>
                                 <div class="socket-status">${socket.status === 'available' ? '空闲' : '占用'}</div>
                             </div>
@@ -695,10 +880,166 @@
             }
         }
 
+        // 全局存储所有事件数据，用于快速筛选
+        let allEventsCache = [];
+        let currentSocketInfo = { stationId: null, socketId: null };
+
         function toggleSocketStatus(stationId, socketId) {
-            // 这里可以添加与后端API的交互
-            console.log(`切换充电桩 ${stationId} 插座 ${socketId} 的状态`);
+            // 显示该插座的状态变化历史
+            showSocketEvents(stationId, socketId);
         }
+
+        // 刷新插座事件
+        async function refreshSocketEvents() {
+            if (!currentSocketInfo.stationId || !currentSocketInfo.socketId) {
+                return;
+            }
+            await showSocketEvents(currentSocketInfo.stationId, currentSocketInfo.socketId);
+        }
+
+        // 显示插座事件弹窗
+        async function showSocketEvents(stationId, socketId) {
+            // 保存当前查询的插座信息，用于刷新
+            currentSocketInfo = { stationId, socketId };
+
+            const station = CHARGING_STATIONS.find(s => s.id === stationId);
+            if (!station) {
+                console.error('未找到充电桩:', stationId);
+                return;
+            }
+
+            // 禁用刷新按钮
+            const refreshBtn = document.getElementById('modalRefreshBtn');
+            if (refreshBtn) {
+                refreshBtn.disabled = true;
+                refreshBtn.textContent = '🔄 加载中...';
+            }
+
+            // 设置弹窗标题
+            const modalTitle = document.getElementById('modalTitle');
+            modalTitle.textContent = `${station.name} - 插座 ${socketId}`;
+
+            // 获取当前插座状态
+            let currentStatus = '未知';
+            let statusColor = '#7f8c8d';
+            try {
+                const result = await getStationDetail(station.simId);
+                if (result.success && result.data) {
+                    const sockets = parsePortStatus(result.data.ports, result.data.device.portNumber);
+                    const socket = sockets.find(s => s.id === socketId);
+                    if (socket) {
+                        currentStatus = socket.status === 'available' ? '空闲' : '占用';
+                        statusColor = socket.status === 'available' ? '#27ae60' : '#e74c3c';
+                    }
+                }
+            } catch (error) {
+                console.error('获取当前状态失败:', error);
+            }
+
+            // 设置插座信息
+            const socketInfo = document.getElementById('socketInfo');
+            socketInfo.innerHTML = `
+                <div class="socket-info-item">
+                    <span class="socket-info-label">充电桩:</span>
+                    <span class="socket-info-value">${station.name}</span>
+                </div>
+                <div class="socket-info-item">
+                    <span class="socket-info-label">插座编号:</span>
+                    <span class="socket-info-value">${socketId}</span>
+                </div>
+                <div class="socket-info-item">
+                    <span class="socket-info-label">当前状态:</span>
+                    <span class="socket-info-value" style="color: ${statusColor}; font-weight: bold;">${currentStatus}</span>
+                </div>
+                <div class="socket-info-item">
+                    <span class="socket-info-label">设备ID:</span>
+                    <span class="socket-info-value">${station.simId}</span>
+                </div>
+            `;
+
+            // 显示加载状态
+            const socketEventsContainer = document.getElementById('socketEvents');
+            socketEventsContainer.innerHTML = '<div class="events-loading">正在加载状态变化历史...</div>';
+
+            // 显示弹窗
+            const modal = document.getElementById('socketModal');
+            modal.classList.add('active');
+
+            try {
+                // 获取最近7天的事件数据
+                const events = await getRecentSocketEvents(stationId, socketId, 7);
+                
+                if (events.length === 0) {
+                    socketEventsContainer.innerHTML = '<div class="no-events">该插座暂无状态变化记录</div>';
+                } else {
+                    // 渲染事件列表
+                    const eventsHtml = events.map(event => renderEvent(event)).join('');
+                    socketEventsContainer.innerHTML = `<div class="events-list">${eventsHtml}</div>`;
+                }
+            } catch (error) {
+                console.error('加载插座事件失败:', error);
+                socketEventsContainer.innerHTML = `<div class="events-error">加载失败: ${error.message}</div>`;
+            } finally {
+                // 重新启用刷新按钮
+                if (refreshBtn) {
+                    refreshBtn.disabled = false;
+                    refreshBtn.textContent = '🔄 刷新';
+                }
+            }
+        }
+
+        // 获取最近N天的特定插座事件
+        async function getRecentSocketEvents(stationId, socketId, days) {
+            const events = [];
+            const today = new Date();
+
+            // 循环获取最近N天的数据
+            for (let i = 0; i < days; i++) {
+                const date = new Date(today);
+                date.setDate(date.getDate() - i);
+                const dateString = date.toISOString().substring(0, 10);
+
+                try {
+                    const result = await getEvents(dateString);
+                    if (result.success && result.events) {
+                        // 筛选出特定充电桩和插座的事件
+                        const filteredEvents = result.events.filter(event => 
+                            event.stationId === stationId && event.socketId === socketId
+                        );
+                        events.push(...filteredEvents);
+                    }
+                } catch (error) {
+                    console.error(`获取 ${dateString} 的事件失败:`, error);
+                }
+            }
+
+            // 按时间戳排序（最新的在前）
+            events.sort((a, b) => b.timestamp - a.timestamp);
+
+            // 限制最多显示50条
+            return events.slice(0, 50);
+        }
+
+        // 关闭插座事件弹窗
+        function closeSocketModal() {
+            const modal = document.getElementById('socketModal');
+            modal.classList.remove('active');
+        }
+
+        // 点击弹窗外部时关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('socketModal');
+            if (event.target === modal) {
+                closeSocketModal();
+            }
+        }
+
+        // 按 ESC 键关闭弹窗
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeSocketModal();
+            }
+        });
 
         // 获取状态变化事件
         async function getEvents(date) {
