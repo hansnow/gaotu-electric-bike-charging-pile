@@ -742,16 +742,15 @@
 
         // 获取所有充电桩数据
         async function fetchStationData() {
-            const stations = [];
-
-            for (const station of CHARGING_STATIONS) {
+            // 并行请求所有充电桩数据，提升加载速度
+            const stationPromises = CHARGING_STATIONS.map(async (station) => {
                 try {
                     const result = await getStationDetail(station.simId);
 
                     if (result.success && result.data) {
                         const sockets = parsePortStatus(result.data.ports, result.data.device.portNumber);
 
-                        stations.push({
+                        return {
                             id: station.id,
                             name: station.name,
                             simId: station.simId,
@@ -759,10 +758,10 @@
                             online: result.data.device.online === 1,
                             address: result.data.device.address,
                             errorMsg: result.data.errorMsg
-                        });
+                        };
                     } else {
                         // 如果获取失败，显示离线状态
-                        stations.push({
+                        return {
                             id: station.id,
                             name: station.name,
                             simId: station.simId,
@@ -771,11 +770,11 @@
                             address: '未知',
                             errorMsg: result.error || '获取数据失败',
                             error: true
-                        });
+                        };
                     }
                 } catch (error) {
                     // 网络错误或其他异常
-                    stations.push({
+                    return {
                         id: station.id,
                         name: station.name,
                         simId: station.simId,
@@ -784,10 +783,11 @@
                         address: '未知',
                         errorMsg: error.message,
                         error: true
-                    });
+                    };
                 }
-            }
+            });
 
+            const stations = await Promise.all(stationPromises);
             return stations;
         }
 
