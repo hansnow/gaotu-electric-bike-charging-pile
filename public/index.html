@@ -661,7 +661,7 @@
             </div>
             <div class="modal-body">
                 <div class="socket-info" id="socketInfo"></div>
-                <div class="modal-events-title">状态变化历史（最近7天）</div>
+                <div class="modal-events-title">状态变化历史（今天）</div>
                 <div id="socketEvents"></div>
             </div>
         </div>
@@ -852,6 +852,8 @@
         async function loadData() {
             try {
                 const stations = await fetchStationData();
+                // 缓存充电桩数据
+                stationsDataCache = stations;
                 renderStations(stations);
 
                 document.getElementById('loading').style.display = 'none';
@@ -882,6 +884,8 @@
 
         // 全局存储所有事件数据，用于快速筛选
         let allEventsCache = [];
+        // 全局存储充电桩数据缓存
+        let stationsDataCache = [];
         let currentSocketInfo = { stationId: null, socketId: null };
 
         function toggleSocketStatus(stationId, socketId) {
@@ -894,11 +898,12 @@
             if (!currentSocketInfo.stationId || !currentSocketInfo.socketId) {
                 return;
             }
-            await showSocketEvents(currentSocketInfo.stationId, currentSocketInfo.socketId);
+            // 强制刷新，重新请求接口
+            await showSocketEvents(currentSocketInfo.stationId, currentSocketInfo.socketId, true);
         }
 
         // 显示插座事件弹窗
-        async function showSocketEvents(stationId, socketId) {
+        async function showSocketEvents(stationId, socketId, forceRefresh = false) {
             // 保存当前查询的插座信息，用于刷新
             currentSocketInfo = { stationId, socketId };
 
@@ -908,32 +913,20 @@
                 return;
             }
 
-            // 禁用刷新按钮
-            const refreshBtn = document.getElementById('modalRefreshBtn');
-            if (refreshBtn) {
-                refreshBtn.disabled = true;
-                refreshBtn.textContent = '🔄 加载中...';
-            }
-
             // 设置弹窗标题
             const modalTitle = document.getElementById('modalTitle');
             modalTitle.textContent = `${station.name} - 插座 ${socketId}`;
 
-            // 获取当前插座状态
+            // 从缓存中获取当前插座状态
             let currentStatus = '未知';
             let statusColor = '#7f8c8d';
-            try {
-                const result = await getStationDetail(station.simId);
-                if (result.success && result.data) {
-                    const sockets = parsePortStatus(result.data.ports, result.data.device.portNumber);
-                    const socket = sockets.find(s => s.id === socketId);
-                    if (socket) {
-                        currentStatus = socket.status === 'available' ? '空闲' : '占用';
-                        statusColor = socket.status === 'available' ? '#27ae60' : '#e74c3c';
-                    }
+            const cachedStation = stationsDataCache.find(s => s.id === stationId);
+            if (cachedStation && cachedStation.sockets) {
+                const socket = cachedStation.sockets.find(s => s.id === socketId);
+                if (socket) {
+                    currentStatus = socket.status === 'available' ? '空闲' : '占用';
+                    statusColor = socket.status === 'available' ? '#27ae60' : '#e74c3c';
                 }
-            } catch (error) {
-                console.error('获取当前状态失败:', error);
             }
 
             // 设置插座信息
@@ -966,11 +959,39 @@
             modal.classList.add('active');
 
             try {
-                // 获取最近7天的事件数据
-                const events = await getRecentSocketEvents(stationId, socketId, 7);
+                let events = [];
+                
+                // 如果是强制刷新，则重新请求接口
+                if (forceRefresh) {
+                    const refreshBtn = document.getElementById('modalRefreshBtn');
+                    if (refreshBtn) {
+                        refreshBtn.disabled = true;
+                        refreshBtn.textContent = '🔄 刷新中...';
+                    }
+                    
+                    const today = new Date().toISOString().substring(0, 10);
+                    const result = await getEvents(today);
+                    if (result.success && result.events) {
+                        // 更新缓存
+                        allEventsCache = result.events;
+                    }
+                    
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                        refreshBtn.textContent = '🔄 刷新';
+                    }
+                }
+                
+                // 从缓存中筛选该插座的事件
+                events = allEventsCache.filter(event => 
+                    event.stationId === stationId && event.socketId === socketId
+                );
+                
+                // 按时间戳排序（最新的在前）
+                events.sort((a, b) => b.timestamp - a.timestamp);
                 
                 if (events.length === 0) {
-                    socketEventsContainer.innerHTML = '<div class="no-events">该插座暂无状态变化记录</div>';
+                    socketEventsContainer.innerHTML = '<div class="no-events">该插座今天暂无状态变化记录</div>';
                 } else {
                     // 渲染事件列表
                     const eventsHtml = events.map(event => renderEvent(event)).join('');
@@ -979,45 +1000,7 @@
             } catch (error) {
                 console.error('加载插座事件失败:', error);
                 socketEventsContainer.innerHTML = `<div class="events-error">加载失败: ${error.message}</div>`;
-            } finally {
-                // 重新启用刷新按钮
-                if (refreshBtn) {
-                    refreshBtn.disabled = false;
-                    refreshBtn.textContent = '🔄 刷新';
-                }
             }
-        }
-
-        // 获取最近N天的特定插座事件
-        async function getRecentSocketEvents(stationId, socketId, days) {
-            const events = [];
-            const today = new Date();
-
-            // 循环获取最近N天的数据
-            for (let i = 0; i < days; i++) {
-                const date = new Date(today);
-                date.setDate(date.getDate() - i);
-                const dateString = date.toISOString().substring(0, 10);
-
-                try {
-                    const result = await getEvents(dateString);
-                    if (result.success && result.events) {
-                        // 筛选出特定充电桩和插座的事件
-                        const filteredEvents = result.events.filter(event => 
-                            event.stationId === stationId && event.socketId === socketId
-                        );
-                        events.push(...filteredEvents);
-                    }
-                } catch (error) {
-                    console.error(`获取 ${dateString} 的事件失败:`, error);
-                }
-            }
-
-            // 按时间戳排序（最新的在前）
-            events.sort((a, b) => b.timestamp - a.timestamp);
-
-            // 限制最多显示50条
-            return events.slice(0, 50);
         }
 
         // 关闭插座事件弹窗
@@ -1125,13 +1108,17 @@
                 const result = await getEvents(targetDate);
 
                 if (result.success) {
+                    // 将事件数据缓存到全局变量，供插座详情使用
+                    allEventsCache = result.events || [];
                     renderEvents(result.events);
                     console.log(`成功加载 ${targetDate} 的事件数据，共 ${result.events.length} 条`);
                 } else {
+                    allEventsCache = [];
                     container.innerHTML = `<div class="events-error">加载失败: ${result.error}</div>`;
                 }
             } catch (error) {
                 console.error('加载事件失败:', error);
+                allEventsCache = [];
                 container.innerHTML = `<div class="events-error">加载失败: ${error.message}</div>`;
             }
         }
