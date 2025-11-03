@@ -10,6 +10,8 @@ import {
   storeLatestStatus,
   getEvents,
   getTimeString,
+  getWriteCount,
+  incrementWriteCount,
   StationStatus,
   StatusChangeEvent,
   StatusSnapshot
@@ -394,6 +396,9 @@ async function performStatusCheck(env: any): Promise<any> {
 
   console.log(`📍 开始检查状态: ${timeString}`);
 
+  // 获取当日累计写入次数
+  const dailyWriteCountBefore = await getWriteCount(env);
+
   const currentStations: StationStatus[] = [];
   const allEvents: StatusChangeEvent[] = [];
   let hasAnyChange = false; // 标记是否有任何状态变化
@@ -485,19 +490,12 @@ async function performStatusCheck(env: any): Promise<any> {
     }
   }
 
-  // 只在有任何状态变化时存储状态快照
+  // 优化：移除快照存储以节省 KV 写入配额
+  // 事件列表和最新状态已足够追溯所有变化
   if (hasAnyChange && currentStations.length > 0) {
-    const snapshot: StatusSnapshot = {
-      timestamp: timestamp,
-      timeString: timeString,
-      stations: currentStations
-    };
-
-    await storeSnapshot(env, snapshot);
-    kvWriteCount++;
-    console.log(`💾 已存储状态快照 (包含 ${allEvents.length} 个变化事件)`);
+    console.log(`✅ 检测到状态变化，已更新最新状态和事件列表`);
   } else {
-    console.log(`⏭️  无状态变化，跳过快照存储`);
+    console.log(`⏭️  无状态变化，跳过存储`);
   }
 
   // 存储状态变化事件（已有检查：allEvents.length > 0）
@@ -507,12 +505,24 @@ async function performStatusCheck(env: any): Promise<any> {
     console.log(`💾 已存储 ${allEvents.length} 个状态变化事件`);
   }
 
+  // 更新每日写入计数（包含计数器自身的写入）
+  let dailyWriteCountAfter = dailyWriteCountBefore;
+  if (kvWriteCount > 0) {
+    dailyWriteCountAfter = await incrementWriteCount(env, kvWriteCount);
+  }
+
   // 输出统计信息
   console.log(`📈 本次检查统计:`);
   console.log(`   - KV 读取次数: ${kvReadCount}`);
   console.log(`   - KV 写入次数: ${kvWriteCount}`);
   console.log(`   - 充电桩数量: ${currentStations.length}`);
   console.log(`   - 状态变化数: ${allEvents.length}`);
+  
+  // 显示配额使用情况
+  if (kvWriteCount > 0) {
+    const quotaUsagePercent = Math.round(dailyWriteCountAfter / 1000 * 100);
+    console.log(`📊 今日配额使用: ${dailyWriteCountAfter}/1000 (${quotaUsagePercent}%)`);
+  }
 
   return {
     timestamp: timestamp,
@@ -522,6 +532,7 @@ async function performStatusCheck(env: any): Promise<any> {
     hasAnyChange: hasAnyChange,
     kvReadCount: kvReadCount,
     kvWriteCount: kvWriteCount,
+    dailyWriteCount: dailyWriteCountAfter,
     stations: currentStations,
     events: allEvents
   };

@@ -235,3 +235,54 @@ export async function storeLatestStatus(env: any, status: StationStatus): Promis
   const latestKey = `latest:${status.id}`;
   await env.CHARGING_EVENTS.put(latestKey, JSON.stringify(status));
 }
+
+/**
+ * 获取当日写入计数
+ */
+export async function getWriteCount(env: any, date?: string): Promise<number> {
+  const dateKey = date || getDateString();
+  const counterKey = `quota:writes:${dateKey}`;
+  const countStr = await env.CHARGING_EVENTS.get(counterKey);
+  
+  if (!countStr) {
+    return 0;
+  }
+  
+  try {
+    return parseInt(countStr, 10);
+  } catch (error) {
+    console.error('解析写入计数失败:', error);
+    return 0;
+  }
+}
+
+/**
+ * 增加写入计数
+ */
+export async function incrementWriteCount(env: any, count: number = 1, date?: string): Promise<number> {
+  const dateKey = date || getDateString();
+  const counterKey = `quota:writes:${dateKey}`;
+  
+  // 获取当前计数
+  const currentCount = await getWriteCount(env, dateKey);
+  const newCount = currentCount + count;
+  
+  // 更新计数（设置过期时间为 7 天）
+  const expirationTtl = 7 * 24 * 60 * 60;
+  await env.CHARGING_EVENTS.put(counterKey, newCount.toString(), {
+    expirationTtl
+  });
+  
+  // 接近配额限制时发出警告
+  const QUOTA_LIMIT = 1000;
+  const WARN_THRESHOLD = 0.8; // 80% 时警告
+  const CRITICAL_THRESHOLD = 0.95; // 95% 时严重警告
+  
+  if (newCount >= QUOTA_LIMIT * CRITICAL_THRESHOLD) {
+    console.warn(`🚨 [配额预警] KV 写入配额即将耗尽: ${newCount}/${QUOTA_LIMIT} (${Math.round(newCount/QUOTA_LIMIT*100)}%)`);
+  } else if (newCount >= QUOTA_LIMIT * WARN_THRESHOLD) {
+    console.warn(`⚠️  [配额警告] KV 写入配额使用较高: ${newCount}/${QUOTA_LIMIT} (${Math.round(newCount/QUOTA_LIMIT*100)}%)`);
+  }
+  
+  return newCount;
+}
