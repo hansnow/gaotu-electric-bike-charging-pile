@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
+    "dev:prod": "wrangler dev --remote --env production",
     "deploy": "wrangler deploy",
     "types": "wrangler types",
     "test": "vitest run",

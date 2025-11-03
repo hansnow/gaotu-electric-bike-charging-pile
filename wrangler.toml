@@ -25,3 +25,10 @@ preview_id = "7b26d5dbec2d4bb7996b0910d5487b78"
 
 [triggers]
 crons = ["* * * * *"]  # 每分钟执行一次（全天24小时）
+
+# 生产环境配置 - 用于本地连接生产 KV
+[env.production]
+[[env.production.kv_namespaces]]
+binding = "CHARGING_EVENTS"
+id = "be17b03b6713467f9114719918a4efb2"
+preview_id = "be17b03b6713467f9114719918a4efb2"

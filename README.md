@@ -44,11 +44,88 @@ pnpm install
 
 ### 本地开发
 
-```bash
-# 启动本地开发服务器
-pnpm run dev
+项目提供了两种开发模式，根据需求选择：
 
-# 运行本地测试
+#### 模式 1：本地开发模式（默认）
+
+```bash
+pnpm dev
+```
+
+**适用场景：**
+- ✅ 日常开发调试
+- ✅ 测试业务逻辑
+- ✅ 快速启动和热更新
+
+**特点：**
+- Worker 代码在本地 Node.js 环境运行
+- KV 数据使用本地模拟存储（内存/文件）
+- 无需上传代码到 Cloudflare，启动更快
+- 不消耗 Cloudflare Workers 请求配额
+
+#### 模式 2：生产环境连接模式
+
+```bash
+pnpm dev:prod
+```
+
+**适用场景：**
+- ✅ 需要访问真实的生产 KV 数据
+- ✅ 验证与线上环境的交互
+- ✅ 调试生产数据相关问题
+
+**特点：**
+- Worker 代码在 Cloudflare 预览环境运行
+- 连接真实的生产 KV namespace
+- 可以读取和修改线上真实数据（⚠️ 请谨慎操作）
+- 需要网络连接，会消耗少量请求配额
+
+#### 两种模式的技术原理
+
+| 对比项 | 本地模式 `pnpm dev` | 生产连接模式 `pnpm dev:prod` |
+|--------|---------------------|------------------------------|
+| **Worker 运行环境** | 本地 Node.js | Cloudflare 预览环境 |
+| **KV 数据来源** | 本地模拟（假数据） | 生产 KV（真实数据） |
+| **启动速度** | 快（~1秒） | 稍慢（~2-5秒，需上传 assets） |
+| **网络要求** | 仅 API 请求需要网络 | 必须联网 |
+| **数据安全** | 完全隔离 | ⚠️ 可直接操作生产数据 |
+| **使用配额** | 不消耗 | 消耗少量配额 |
+
+#### 实现原理说明
+
+**本地模式工作原理：**
+- 执行 `wrangler dev`（不带 `--remote`）
+- KV 绑定被本地模拟器接管，数据存储在 `.wrangler/state/` 目录
+- `preview_id` 配置不生效，因为不会连接远程 KV
+
+**生产连接模式工作原理：**
+- 执行 `wrangler dev --remote --env production`
+- `--remote`: 让 Worker 在 Cloudflare 环境运行，而非本地
+- `--env production`: 使用 `wrangler.toml` 中的 `[env.production]` 配置段
+- 该配置段将 `preview_id` 设置为生产 KV 的 ID，从而连接真实数据
+
+**配置文件对应关系：**
+```toml
+# wrangler.toml
+
+# 默认配置（pnpm dev 使用）
+[[kv_namespaces]]
+binding = "CHARGING_EVENTS"
+id = "be17b03b6713467f9114719918a4efb2"
+preview_id = "7b26d5dbec2d4bb7996b0910d5487b78"  # 测试环境 KV
+
+# 生产环境配置（pnpm dev:prod 使用）
+[env.production]
+[[env.production.kv_namespaces]]
+binding = "CHARGING_EVENTS"
+id = "be17b03b6713467f9114719918a4efb2"
+preview_id = "be17b03b6713467f9114719918a4efb2"  # 生产环境 KV
+```
+
+#### 其他开发命令
+
+```bash
+# 运行本地测试脚本
 npx tsx test-local.ts
 ```
 
