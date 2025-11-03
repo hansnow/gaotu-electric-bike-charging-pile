@@ -1,0 +1,1 @@
+- 用中文生成 git commit message
