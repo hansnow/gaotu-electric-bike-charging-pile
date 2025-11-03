@@ -158,6 +158,13 @@
             opacity: 0.9;
         }
 
+        .socket-duration {
+            font-size: 8px;
+            opacity: 0.85;
+            margin-top: 2px;
+            font-weight: normal;
+        }
+
         .loading {
             text-align: center;
             padding: 40px;
@@ -232,6 +239,10 @@
             .socket-status {
                 font-size: 8px;
             }
+
+            .socket-duration {
+                font-size: 7px;
+            }
         }
 
         @media (max-width: 480px) {
@@ -265,6 +276,10 @@
 
             .socket-status {
                 font-size: 7px;
+            }
+
+            .socket-duration {
+                font-size: 6px;
             }
         }
 
@@ -818,7 +833,7 @@
             }
 
             return `
-                <div class="station">
+                <div class="station" data-station-id="${station.id}">
                     <div class="station-header">
                         <div class="station-title">${station.name} <span style="color: #27ae60;">🟢 在线</span></div>
                         <div class="station-stats">
@@ -831,14 +846,18 @@
                         </div>
                     </div>
                     <div class="sockets-grid">
-                        ${station.sockets.map(socket => `
-                            <div class="socket ${socket.status}"
+                        ${station.sockets.map(socket => {
+                            const duration = calculateSocketDuration(station.id, socket.id, socket.status);
+                            return `
+                            <div class="socket ${socket.status}" data-socket-id="${socket.id}"
                                  onclick="toggleSocketStatus(${station.id}, ${socket.id})"
                                  title="点击查看插座 ${socket.id} 的状态变化历史">
                                 <div class="socket-number">${socket.id}</div>
                                 <div class="socket-status">${socket.status === 'available' ? '空闲' : '占用'}</div>
+                                <div class="socket-duration">${duration}</div>
                             </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             `;
@@ -847,6 +866,27 @@
         function renderStations(stations) {
             const stationsContainer = document.getElementById('stations');
             stationsContainer.innerHTML = stations.map(station => renderStation(station)).join('');
+        }
+
+        /**
+         * 更新所有插座的状态时长显示（不重新加载数据）
+         */
+        function updateSocketDurations() {
+            if (!stationsDataCache || stationsDataCache.length === 0) {
+                return;
+            }
+
+            stationsDataCache.forEach(station => {
+                station.sockets.forEach(socket => {
+                    const socketElement = document.querySelector(
+                        `.station[data-station-id="${station.id}"] .socket[data-socket-id="${socket.id}"] .socket-duration`
+                    );
+                    if (socketElement) {
+                        const duration = calculateSocketDuration(station.id, socket.id, socket.status);
+                        socketElement.textContent = duration;
+                    }
+                });
+            });
         }
 
         async function loadData() {
@@ -887,6 +927,56 @@
         // 全局存储充电桩数据缓存
         let stationsDataCache = [];
         let currentSocketInfo = { stationId: null, socketId: null };
+
+        /**
+         * 计算插座当前状态的持续时间
+         * @param {number} stationId - 充电桩ID
+         * @param {number} socketId - 插座ID
+         * @param {string} currentStatus - 当前状态 ('available' 或 'occupied')
+         * @returns {string} 时长字符串，格式为 "hh:mm" 或 "--"
+         */
+        function calculateSocketDuration(stationId, socketId, currentStatus) {
+            // 如果没有事件缓存，返回 "--"
+            if (!allEventsCache || allEventsCache.length === 0) {
+                return '--';
+            }
+
+            // 筛选出该插座的所有事件，按时间戳降序排序
+            const socketEvents = allEventsCache
+                .filter(event => event.stationId === stationId && event.socketId === socketId)
+                .sort((a, b) => b.timestamp - a.timestamp);
+
+            // 如果没有任何事件记录，返回 "--"
+            if (socketEvents.length === 0) {
+                return '--';
+            }
+
+            // 找到最后一次状态变化事件
+            // 如果最后一条事件的新状态与当前状态不一致，说明当前状态可能是最新的（还没有记录）
+            // 这种情况下，我们使用当前时间作为起始时间
+            const lastEvent = socketEvents[0];
+            
+            // 如果最后一条事件的新状态与当前状态一致，使用事件时间戳计算时长
+            if (lastEvent.newStatus === currentStatus) {
+                const durationMs = Date.now() - lastEvent.timestamp;
+                return formatDuration(durationMs);
+            } else {
+                // 状态不一致，可能是还没有记录最新的状态变化，返回 "--"
+                return '--';
+            }
+        }
+
+        /**
+         * 将毫秒数格式化为 "hh:mm" 格式
+         * @param {number} ms - 毫秒数
+         * @returns {string} 格式化的时长字符串，如 "02:30" 表示 2小时30分钟
+         */
+        function formatDuration(ms) {
+            const totalMinutes = Math.floor(ms / (1000 * 60));
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        }
 
         function toggleSocketStatus(stationId, socketId) {
             // 显示该插座的状态变化历史
@@ -1111,6 +1201,8 @@
                     // 将事件数据缓存到全局变量，供插座详情使用
                     allEventsCache = result.events || [];
                     renderEvents(result.events);
+                    // 更新插座时长显示
+                    updateSocketDurations();
                     console.log(`成功加载 ${targetDate} 的事件数据，共 ${result.events.length} 条`);
                 } else {
                     allEventsCache = [];
@@ -1148,6 +1240,11 @@
             setInterval(async () => {
                 await loadEvents();
             }, 300000);
+
+            // 每30秒更新一次插座状态时长显示（轻量级更新，不重新加载数据）
+            setInterval(() => {
+                updateSocketDurations();
+            }, 30000);
         });
     </script>
 </body>
