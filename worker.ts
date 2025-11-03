@@ -10,12 +10,24 @@ import {
   storeLatestStatus,
   getEvents,
   getTimeString,
+  getDateString,
   getWriteCount,
   incrementWriteCount,
+  dayDiff,
   StationStatus,
   StatusChangeEvent,
   StatusSnapshot
 } from './status-tracker';
+import {
+  storeLatestStatusD1,
+  getLatestStatusD1,
+  storeEventsD1,
+  getEventsD1,
+  getEventsInRangeD1,
+  getStatisticsD1,
+  incrementQuotaStatsD1,
+  getQuotaStatsD1
+} from './d1-storage';
 
 /**
  * Cloudflare Worker 入口文件
@@ -134,7 +146,7 @@ export default {
         const targetDate = date || new Date().toISOString().substring(0, 10);
 
         try {
-          const events = await getEvents(env, targetDate);
+          const events = await getEventsD1(env.DB, targetDate);
           return new Response(JSON.stringify({
             success: true,
             date: targetDate,
@@ -189,6 +201,53 @@ export default {
         }
       }
 
+      // 统计 API 接口
+      if (url.pathname === '/statistics' && request.method === 'GET') {
+        const startDate = url.searchParams.get('start') || getDateString();
+        const endDate = url.searchParams.get('end') || getDateString();
+        const maxRangeDays = 31;
+
+        if (dayDiff(startDate, endDate) > maxRangeDays) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: `date range must be <= ${maxRangeDays} days`
+          }), {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+
+        try {
+          const stats = await getStatisticsD1(env.DB, startDate, endDate);
+          return new Response(JSON.stringify({
+            success: true,
+            startDate,
+            endDate,
+            statistics: stats
+          }), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        } catch (error) {
+          console.error('获取统计失败:', error);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }), {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+      }
+
       // 默认响应
       return new Response(JSON.stringify({
         message: 'Electric Bike Charging Pile API',
@@ -198,6 +257,7 @@ export default {
           { path: '/detail', method: 'POST', description: 'Get device detail' },
           { path: '/events', method: 'GET', description: 'Get status change events' },
           { path: '/check-status', method: 'POST', description: 'Manual status check' },
+          { path: '/statistics', method: 'GET', description: 'Get statistics (query params: start, end)' },
         ]
       }), {
         headers: {
@@ -387,28 +447,26 @@ async function runTestFlow(): Promise<any> {
 
 /**
  * 执行状态检查的核心函数
- * 获取所有充电桩的当前状态，检测变化，并存储到KV中
- * 优化策略：只在状态真正变化时才写入KV，以节省免费套餐的写入次数限制
+ * 获取所有充电桩的当前状态，检测变化，并存储到D1中
+ * 优化策略：只在状态真正变化时才写入，以节省配额
  */
 async function performStatusCheck(env: any): Promise<any> {
   const timestamp = Date.now();
   const timeString = getTimeString(new Date(timestamp));
+  const dateString = getDateString(new Date(timestamp));
 
   console.log(`📍 开始检查状态: ${timeString}`);
-
-  // 获取当日累计写入次数
-  const dailyWriteCountBefore = await getWriteCount(env);
 
   const currentStations: StationStatus[] = [];
   const allEvents: StatusChangeEvent[] = [];
   let hasAnyChange = false; // 标记是否有任何状态变化
-  let kvReadCount = 0;
-  let kvWriteCount = 0;
+  let d1ReadCount = 0;
+  let d1WriteCount = 0;
 
   for (const station of CHARGING_STATIONS) {
     try {
       console.log(`  🔍 检查 [${station.name}] (simId: ${station.simId})`);
-      
+
       // 获取充电桩详情
       const detailParams: DeviceDetailRequest = {
         simId: station.simId,
@@ -438,9 +496,9 @@ async function performStatusCheck(env: any): Promise<any> {
         currentStations.push(currentStatus);
         console.log(`     📊 在线: ${currentStatus.online ? '是' : '否'} | 插座: ${sockets.length}个 (空闲${availableCount}/占用${occupiedCount})`);
 
-        // 获取上一次的状态
-        const previousStatus = await getLatestStatus(env, station.id);
-        kvReadCount++;
+        // 获取上一次的状态（从 D1）
+        const previousStatus = await getLatestStatusD1(env.DB, station.id);
+        d1ReadCount++;
 
         let stationHasChange = false;
 
@@ -458,7 +516,7 @@ async function performStatusCheck(env: any): Promise<any> {
             stationHasChange = true;
             hasAnyChange = true;
             allEvents.push(...changes);
-            
+
             console.log(`     🔔 检测到 ${changes.length} 个状态变化:`);
             changes.forEach(change => {
               const statusEmoji = change.newStatus === 'occupied' ? '🔌' : '🔓';
@@ -471,14 +529,14 @@ async function performStatusCheck(env: any): Promise<any> {
           // 如果是第一次获取状态，也需要存储
           stationHasChange = true;
           hasAnyChange = true;
-          console.log(`     🆕 首次获取状态，将写入 KV`);
+          console.log(`     🆕 首次获取状态，将写入 D1`);
         }
 
         // 只在状态变化时存储最新状态
         if (stationHasChange) {
-          await storeLatestStatus(env, currentStatus);
-          kvWriteCount++;
-          console.log(`     💾 已更新最新状态到 KV`);
+          await storeLatestStatusD1(env.DB, currentStatus);
+          d1WriteCount++;
+          console.log(`     💾 已更新最新状态到 D1`);
         }
 
       } else {
@@ -490,39 +548,29 @@ async function performStatusCheck(env: any): Promise<any> {
     }
   }
 
-  // 优化：移除快照存储以节省 KV 写入配额
-  // 事件列表和最新状态已足够追溯所有变化
-  if (hasAnyChange && currentStations.length > 0) {
-    console.log(`✅ 检测到状态变化，已更新最新状态和事件列表`);
+  // 存储状态变化事件到 D1
+  if (allEvents.length > 0) {
+    await storeEventsD1(env.DB, allEvents);
+    d1WriteCount++;
+    console.log(`💾 已存储 ${allEvents.length} 个状态变化事件到 D1`);
   } else {
     console.log(`⏭️  无状态变化，跳过存储`);
   }
 
-  // 存储状态变化事件（已有检查：allEvents.length > 0）
-  if (allEvents.length > 0) {
-    await storeEvents(env, allEvents);
-    kvWriteCount++;
-    console.log(`💾 已存储 ${allEvents.length} 个状态变化事件`);
-  }
-
-  // 更新每日写入计数（包含计数器自身的写入）
-  let dailyWriteCountAfter = dailyWriteCountBefore;
-  if (kvWriteCount > 0) {
-    dailyWriteCountAfter = await incrementWriteCount(env, kvWriteCount);
+  // 更新配额统计到 D1
+  if (d1ReadCount > 0 || d1WriteCount > 0) {
+    await incrementQuotaStatsD1(env.DB, dateString, {
+      reads: d1ReadCount,
+      writes: d1WriteCount
+    });
   }
 
   // 输出统计信息
   console.log(`📈 本次检查统计:`);
-  console.log(`   - KV 读取次数: ${kvReadCount}`);
-  console.log(`   - KV 写入次数: ${kvWriteCount}`);
+  console.log(`   - D1 读取次数: ${d1ReadCount}`);
+  console.log(`   - D1 写入次数: ${d1WriteCount}`);
   console.log(`   - 充电桩数量: ${currentStations.length}`);
   console.log(`   - 状态变化数: ${allEvents.length}`);
-  
-  // 显示配额使用情况
-  if (kvWriteCount > 0) {
-    const quotaUsagePercent = Math.round(dailyWriteCountAfter / 1000 * 100);
-    console.log(`📊 今日配额使用: ${dailyWriteCountAfter}/1000 (${quotaUsagePercent}%)`);
-  }
 
   return {
     timestamp: timestamp,
@@ -530,9 +578,8 @@ async function performStatusCheck(env: any): Promise<any> {
     stationsCount: currentStations.length,
     eventsCount: allEvents.length,
     hasAnyChange: hasAnyChange,
-    kvReadCount: kvReadCount,
-    kvWriteCount: kvWriteCount,
-    dailyWriteCount: dailyWriteCountAfter,
+    d1ReadCount: d1ReadCount,
+    d1WriteCount: d1WriteCount,
     stations: currentStations,
     events: allEvents
   };

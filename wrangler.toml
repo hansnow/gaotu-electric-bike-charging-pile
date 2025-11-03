@@ -20,6 +20,11 @@ binding = "CHARGING_EVENTS"
 id = "be17b03b6713467f9114719918a4efb2"
 preview_id = "7b26d5dbec2d4bb7996b0910d5487b78"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "gaotu-electric-bike-charging-pile-db"
+database_id = "51413f16-745d-4cd4-9485-6182133e9af5"
+
 [vars]
 # 环境变量可以在这里定义
 
