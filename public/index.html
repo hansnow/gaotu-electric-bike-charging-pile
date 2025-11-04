@@ -367,6 +367,7 @@
             justify-content: space-between;
             align-items: center;
             gap: 15px;
+            flex-wrap: wrap;
         }
 
         .event-station {
@@ -392,6 +393,15 @@
         .event-arrow {
             color: #95a5a6;
             font-weight: bold;
+        }
+
+        .event-duration {
+            font-size: 12px;
+            color: #7f8c8d;
+            font-weight: normal;
+            background: #ecf0f1;
+            padding: 2px 8px;
+            border-radius: 12px;
         }
 
         .no-events {
@@ -1149,6 +1159,28 @@
             });
         }
 
+        // 计算事件对应的状态持续时间
+        function calculateEventDuration(event, allEvents) {
+            // 查找该插座的下一个状态变化事件
+            const socketEvents = allEvents
+                .filter(e => e.stationId === event.stationId && e.socketId === event.socketId)
+                .sort((a, b) => a.timestamp - b.timestamp);
+
+            const currentIndex = socketEvents.findIndex(e => e.timestamp === event.timestamp);
+            if (currentIndex === -1) return null;
+
+            // 如果是最新的事件，计算到现在的时长
+            if (currentIndex === socketEvents.length - 1) {
+                const durationMs = Date.now() - event.timestamp;
+                return formatDuration(durationMs);
+            } else {
+                // 否则计算到下一个状态变化的时长
+                const nextEvent = socketEvents[currentIndex + 1];
+                const durationMs = nextEvent.timestamp - event.timestamp;
+                return formatDuration(durationMs);
+            }
+        }
+
         // 渲染单个事件
         function renderEvent(event) {
             const oldStatusText = event.oldStatus === 'available' ? '空闲' : '占用';
@@ -1156,6 +1188,7 @@
             const oldStatusClass = event.oldStatus;
             const newStatusClass = event.newStatus;
             const beijingTime = formatBeijingTime(event.timeString);
+            const duration = calculateEventDuration(event, allEventsCache);
 
             return `
                 <div class="event-item ${newStatusClass}">
@@ -1168,6 +1201,7 @@
                             <span class="event-arrow">→</span>
                             <span class="status-${newStatusClass}">${newStatusText}</span>
                         </div>
+                        ${duration ? `<div class="event-duration">持续 ${duration}</div>` : ''}
                     </div>
                 </div>
             `;
@@ -1184,6 +1218,48 @@
 
             const eventsHtml = events.map(event => renderEvent(event)).join('');
             container.innerHTML = `<div class="events-list">${eventsHtml}</div>`;
+        }
+
+        // 更新事件列表中的持续时间（不重新渲染整个列表）
+        function updateEventDurations() {
+            if (!allEventsCache || allEventsCache.length === 0) {
+                return;
+            }
+
+            // 只更新显示的事件
+            const eventItems = document.querySelectorAll('.event-item');
+            eventItems.forEach((item, index) => {
+                const timeElement = item.querySelector('.event-time');
+                if (!timeElement) return;
+
+                // 从时间文本反向查找对应的事件
+                const timeText = timeElement.textContent;
+                const event = allEventsCache.find(e => {
+                    const beijingTime = formatBeijingTime(e.timeString);
+                    return beijingTime === timeText;
+                });
+
+                if (!event) return;
+
+                // 查找或创建持续时间元素
+                let durationElement = item.querySelector('.event-duration');
+                const duration = calculateEventDuration(event, allEventsCache);
+
+                if (duration) {
+                    if (durationElement) {
+                        durationElement.textContent = `持续 ${duration}`;
+                    } else {
+                        // 如果不存在，创建新元素
+                        const eventContent = item.querySelector('.event-content');
+                        if (eventContent) {
+                            durationElement = document.createElement('div');
+                            durationElement.className = 'event-duration';
+                            durationElement.textContent = `持续 ${duration}`;
+                            eventContent.appendChild(durationElement);
+                        }
+                    }
+                }
+            });
         }
 
         // 加载事件数据
@@ -1244,6 +1320,7 @@
             // 每30秒更新一次插座状态时长显示（轻量级更新，不重新加载数据）
             setInterval(() => {
                 updateSocketDurations();
+                updateEventDurations();
             }, 30000);
         });
     </script>
