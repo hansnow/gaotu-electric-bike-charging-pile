@@ -458,3 +458,393 @@ curl -X POST 'https://your-worker.workers.dev/check-status'
 - **最新状态**: 无限期保存
 - **变化事件**: 保留 7 天，每天最多保存 1000 个事件
 - **配额计数**: 保留 7 天
+
+---
+
+# Worker API 接口
+
+以下是充电桩监控系统提供的内部 API 接口。
+
+## 基础信息
+
+**Base URL**: `https://electric-bike-charging-pile.hansnow.me`
+
+**认证方式**: 部分接口需要在请求头中提供 `X-Admin-Token`
+
+## 状态监控接口
+
+### 1. 查询附近充电桩
+
+```http
+POST /nearby
+Content-Type: application/json
+
+{
+  "positioningFlag": 1,
+  "deviceFamily": 0,
+  "lat": 40.043910,
+  "lng": 116.283760,
+  "name": "",
+  "mapType": 2
+}
+```
+
+**响应**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 773288,
+      "name": "中电金信自行车充电2号桩",
+      "simId": "863060079195715",
+      "portNumber": 20,
+      "freePortCount": 8,
+      "online": 1,
+      "address": "北京市海淀区旺科东路",
+      // ... 更多字段
+    }
+  ]
+}
+```
+
+### 2. 查询充电桩详情
+
+```http
+POST /detail
+Content-Type: application/json
+
+{
+  "simId": "867997075125699",
+  "mapType": 2,
+  "chargeTypeTag": 0,
+  "appEntrance": 1,
+  "version": "new"
+}
+```
+
+**响应**:
+```json
+{
+  "success": true,
+  "data": {
+    "ports": [0, 1, 0, 1, ...],  // 插座状态数组
+    "device": {
+      "id": 773287,
+      "name": "中电金信自行车充电1号桩",
+      "simId": "867997075125699",
+      "portNumber": 20,
+      "freePortCount": 10,
+      "online": 1,
+      // ... 更多字段
+    }
+  }
+}
+```
+
+### 3. 查询状态变化事件
+
+```http
+GET /events?date=2025-11-12
+```
+
+**参数**:
+- `date` (可选): 日期，格式 YYYY-MM-DD，默认今天
+
+**响应**:
+```json
+{
+  "success": true,
+  "date": "2025-11-12",
+  "events": [
+    {
+      "id": "1-2-1762938823000",
+      "stationId": 1,
+      "stationName": "1号充电桩",
+      "socketId": 2,
+      "oldStatus": "occupied",
+      "newStatus": "available",
+      "timestamp": 1762938823000,
+      "timeString": "2025-11-12 16:13:43"
+    }
+  ]
+}
+```
+
+### 4. 手动触发状态检查
+
+```http
+POST /check-status
+```
+
+**响应**:
+```json
+{
+  "success": true,
+  "message": "状态检查完成",
+  "result": {
+    "timestamp": 1762938823000,
+    "timeString": "2025-11-12 16:13:43",
+    "stationsCount": 3,
+    "eventsCount": 15,
+    "hasAnyChange": true
+  }
+}
+```
+
+### 5. 查询统计数据
+
+```http
+GET /statistics?start=2025-11-01&end=2025-11-12
+```
+
+**参数**:
+- `start` (可选): 开始日期，默认今天
+- `end` (可选): 结束日期，默认今天
+- 日期范围不能超过 31 天
+
+**响应**:
+```json
+{
+  "success": true,
+  "startDate": "2025-11-01",
+  "endDate": "2025-11-12",
+  "statistics": {
+    "daily": [...],
+    "hourly": [...]
+  }
+}
+```
+
+---
+
+## 空闲提醒接口
+
+### 1. 查询空闲提醒配置
+
+```http
+GET /api/alert/config
+```
+
+**响应**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "idle_threshold_minutes": 30,
+    "time_range_start": "08:00",
+    "time_range_end": "17:00",
+    "webhook_urls": "[\"https://webhook.site/xxx\"]",
+    "enabled_station_ids": null,
+    "enabled": 1,
+    "retry_times": 2,
+    "retry_interval_seconds": 60,
+    "created_at": 1762938823,
+    "updated_at": 1762938823
+  }
+}
+```
+
+### 2. 更新空闲提醒配置
+
+```http
+POST /api/alert/config
+X-Admin-Token: your-admin-token
+Content-Type: application/json
+
+{
+  "idle_threshold_minutes": 45,
+  "time_range_start": "09:00",
+  "time_range_end": "18:00",
+  "webhook_urls": "[\"https://webhook.site/xxx\"]",
+  "enabled": 1
+}
+```
+
+**参数校验**:
+- `idle_threshold_minutes`: 1-1440 之间
+- `time_range_start/end`: HH:mm 格式
+- `webhook_urls`: JSON 数组，每个 URL 必须以 http/https 开头
+- `enabled`: 0 或 1
+- `retry_times`: 0-10 之间
+- `retry_interval_seconds`: 1-300 之间
+- `enabled_station_ids`: JSON 数组或 null
+
+**响应**:
+```json
+{
+  "success": true,
+  "message": "配置更新成功"
+}
+```
+
+**错误响应**:
+```json
+{
+  "success": false,
+  "error": "缺少 X-Admin-Token 请求头"
+}
+```
+
+### 3. 查询空闲提醒日志
+
+```http
+GET /api/alert/logs?date=2025-11-12&limit=100&offset=0
+```
+
+**查询参数**:
+- `date` (可选): 日期过滤（YYYY-MM-DD）
+- `stationId` (可选): 充电桩ID
+- `socketId` (可选): 插座ID
+- `success` (可选): 成功状态（'true'/'false'）
+- `limit` (可选): 返回数量，默认 100
+- `offset` (可选): 偏移量，默认 0
+
+**响应**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "1-2-https://webhook.site/xxx-1762938823",
+      "station_id": 1,
+      "station_name": "1号充电桩",
+      "socket_id": 2,
+      "idle_minutes": 60,
+      "idle_start_time": 1762935223,
+      "webhook_url": "https://webhook.site/xxx",
+      "response_status": 200,
+      "response_body": "OK",
+      "response_time_ms": 234,
+      "success": 1,
+      "error_message": null,
+      "retry_count": 0,
+      "triggered_at": 1762938823,
+      "sent_at": 1762938823,
+      "log_date": "2025-11-12"
+    }
+  ],
+  "count": 1
+}
+```
+
+### 4. 测试 Webhook
+
+```http
+POST /api/alert/test
+X-Admin-Token: your-admin-token
+```
+
+发送测试消息到所有配置的 Webhook URL。
+
+**响应**:
+```json
+{
+  "success": true,
+  "message": "测试完成",
+  "results": [
+    {
+      "url": "https://webhook.site/xxx",
+      "success": true,
+      "status": 200,
+      "body": "OK",
+      "retryCount": 0,
+      "elapsedMs": 234
+    }
+  ]
+}
+```
+
+### 5. 查询空闲提醒统计
+
+```http
+GET /api/alert/stats
+```
+
+返回近 7 天的统计数据。
+
+**响应**:
+```json
+{
+  "success": true,
+  "data": {
+    "summary": {
+      "total": 150,
+      "successCount": 145,
+      "failedCount": 5,
+      "successRate": 97,
+      "avgResponseTime": 235.5
+    },
+    "byStation": [
+      {
+        "station_id": 1,
+        "station_name": "1号充电桩",
+        "total": 50,
+        "success_count": 48
+      }
+    ],
+    "trend": [
+      {
+        "log_date": "2025-11-12",
+        "total": 25,
+        "success_count": 24
+      }
+    ]
+  }
+}
+```
+
+### Webhook Payload 格式
+
+当检测到插座空闲超过阈值时，系统会向配置的 Webhook URL 发送 POST 请求：
+
+```json
+{
+  "alertType": "socket_idle",
+  "timestamp": 1762938823,
+  "timeString": "2025-11-12 16:13:43",
+  "station": {
+    "id": 1,
+    "name": "1号充电桩"
+  },
+  "socket": {
+    "id": 2,
+    "status": "available",
+    "idleMinutes": 60,
+    "idleStartTime": 1762935223,
+    "idleStartTimeString": "2025-11-12 15:13:43"
+  },
+  "config": {
+    "threshold": 30,
+    "timeRange": "08:00-17:00"
+  }
+}
+```
+
+---
+
+## 错误响应格式
+
+所有接口在发生错误时返回统一格式：
+
+```json
+{
+  "success": false,
+  "error": "错误描述信息"
+}
+```
+
+HTTP 状态码：
+- `200` - 成功
+- `400` - 请求参数错误
+- `401` - 缺少认证 Token
+- `403` - Token 无效
+- `500` - 服务器内部错误
+
+---
+
+## 相关文档
+
+- [空闲提醒功能实现文档](./docs/idle-alert-implementation.md)
+- [空闲提醒功能设计文档](./docs/idle-alert-design.md)
