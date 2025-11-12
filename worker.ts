@@ -28,6 +28,9 @@ import {
   incrementQuotaStatsD1,
   getQuotaStatsD1
 } from './d1-storage';
+import { runIdleAlertFlow } from './idle-alert/service';
+import { loadConfig, updateConfig, type UpdateConfigPayload } from './idle-alert/config';
+import { sendToAll, type WebhookPayload } from './idle-alert/alert-sender';
 
 /**
  * Cloudflare Worker 入口文件
@@ -57,7 +60,7 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Token',
         },
       });
     }
@@ -248,6 +251,311 @@ export default {
         }
       }
 
+      // ========== 空闲提醒 API ==========
+
+      // 查询空闲提醒配置
+      if (url.pathname === '/api/alert/config' && request.method === 'GET') {
+        try {
+          const config = await loadConfig(env.DB, env);
+          return new Response(JSON.stringify({
+            success: true,
+            data: config
+          }), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        } catch (error) {
+          console.error('[IDLE_ALERT] 查询配置失败:', error);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }), {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+      }
+
+      // 更新空闲提醒配置（需要 Token）
+      if (url.pathname === '/api/alert/config' && request.method === 'POST') {
+        // 校验 Token
+        const authError = checkAdminToken(request, env);
+        if (authError) {
+          return authError;
+        }
+
+        try {
+          const payload = await request.json() as UpdateConfigPayload;
+          await updateConfig(env.DB, payload);
+          return new Response(JSON.stringify({
+            success: true,
+            message: '配置更新成功'
+          }), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        } catch (error) {
+          console.error('[IDLE_ALERT] 更新配置失败:', error);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }), {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+      }
+
+      // 查询空闲提醒日志
+      if (url.pathname === '/api/alert/logs' && request.method === 'GET') {
+        try {
+          const date = url.searchParams.get('date');
+          const stationId = url.searchParams.get('stationId');
+          const socketId = url.searchParams.get('socketId');
+          const success = url.searchParams.get('success');
+          const limit = parseInt(url.searchParams.get('limit') || '100');
+          const offset = parseInt(url.searchParams.get('offset') || '0');
+
+          // 构建查询条件
+          const conditions: string[] = [];
+          const params: any[] = [];
+
+          if (date) {
+            conditions.push('log_date = ?');
+            params.push(date);
+          }
+
+          if (stationId) {
+            conditions.push('station_id = ?');
+            params.push(parseInt(stationId));
+          }
+
+          if (socketId) {
+            conditions.push('socket_id = ?');
+            params.push(parseInt(socketId));
+          }
+
+          if (success !== null && success !== undefined) {
+            conditions.push('success = ?');
+            params.push(success === 'true' || success === '1' ? 1 : 0);
+          }
+
+          const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+          const sql = `
+            SELECT * FROM idle_alert_logs
+            ${whereClause}
+            ORDER BY triggered_at DESC
+            LIMIT ? OFFSET ?
+          `;
+
+          params.push(limit, offset);
+
+          const result = await env.DB.prepare(sql).bind(...params).all();
+
+          return new Response(JSON.stringify({
+            success: true,
+            data: result.results || [],
+            count: result.results?.length || 0
+          }), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        } catch (error) {
+          console.error('[IDLE_ALERT] 查询日志失败:', error);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }), {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+      }
+
+      // 测试 Webhook（需要 Token）
+      if (url.pathname === '/api/alert/test' && request.method === 'POST') {
+        // 校验 Token
+        const authError = checkAdminToken(request, env);
+        if (authError) {
+          return authError;
+        }
+
+        try {
+          const config = await loadConfig(env.DB, env);
+          const webhookUrls = JSON.parse(config.webhook_urls);
+
+          if (webhookUrls.length === 0) {
+            return new Response(JSON.stringify({
+              success: false,
+              error: 'Webhook URLs 为空，请先配置'
+            }), {
+              status: 400,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+              },
+            });
+          }
+
+          // 构建测试 Payload
+          const now = new Date();
+          const testPayload: WebhookPayload = {
+            alertType: 'socket_idle',
+            timestamp: Math.floor(now.getTime() / 1000),
+            timeString: now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+            station: {
+              id: 999,
+              name: '测试充电桩',
+            },
+            socket: {
+              id: 1,
+              status: 'available',
+              idleMinutes: 60,
+              idleStartTime: Math.floor((now.getTime() - 60 * 60 * 1000) / 1000),
+              idleStartTimeString: new Date(now.getTime() - 60 * 60 * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+            },
+            config: {
+              threshold: config.idle_threshold_minutes,
+              timeRange: `${config.time_range_start}-${config.time_range_end}`,
+            },
+          };
+
+          // 发送测试
+          const results = await sendToAll(webhookUrls, testPayload, {
+            retryTimes: 0, // 测试不重试
+            retryIntervalSeconds: 0,
+          });
+
+          return new Response(JSON.stringify({
+            success: true,
+            message: '测试完成',
+            results: results
+          }), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        } catch (error) {
+          console.error('[IDLE_ALERT] 测试 Webhook 失败:', error);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }), {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+      }
+
+      // 查询空闲提醒统计
+      if (url.pathname === '/api/alert/stats' && request.method === 'GET') {
+        try {
+          // 查询近 7 天的统计
+          const today = new Date();
+          const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+          const formatDate = (date: Date) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          };
+
+          const startDate = formatDate(sevenDaysAgo);
+          const endDate = formatDate(today);
+
+          // 总次数和成功率
+          const totalResult = await env.DB.prepare(`
+            SELECT
+              COUNT(*) as total,
+              SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count,
+              AVG(response_time_ms) as avg_response_time
+            FROM idle_alert_logs
+            WHERE log_date >= ? AND log_date <= ?
+          `).bind(startDate, endDate).first();
+
+          // 按充电桩聚合
+          const stationResult = await env.DB.prepare(`
+            SELECT
+              station_id,
+              station_name,
+              COUNT(*) as total,
+              SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count
+            FROM idle_alert_logs
+            WHERE log_date >= ? AND log_date <= ?
+            GROUP BY station_id, station_name
+            ORDER BY total DESC
+          `).bind(startDate, endDate).all();
+
+          // 按日期趋势
+          const trendResult = await env.DB.prepare(`
+            SELECT
+              log_date,
+              COUNT(*) as total,
+              SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count
+            FROM idle_alert_logs
+            WHERE log_date >= ? AND log_date <= ?
+            GROUP BY log_date
+            ORDER BY log_date ASC
+          `).bind(startDate, endDate).all();
+
+          const total = (totalResult?.total as number) || 0;
+          const successCount = (totalResult?.success_count as number) || 0;
+          const successRate = total > 0 ? Math.round((successCount / total) * 100) : 0;
+
+          return new Response(JSON.stringify({
+            success: true,
+            data: {
+              summary: {
+                total: total,
+                successCount: successCount,
+                failedCount: total - successCount,
+                successRate: successRate,
+                avgResponseTime: totalResult?.avg_response_time || 0,
+              },
+              byStation: stationResult.results || [],
+              trend: trendResult.results || [],
+            }
+          }), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        } catch (error) {
+          console.error('[IDLE_ALERT] 查询统计失败:', error);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }), {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+      }
+
       // 默认响应
       return new Response(JSON.stringify({
         message: 'Electric Bike Charging Pile API',
@@ -258,6 +566,11 @@ export default {
           { path: '/events', method: 'GET', description: 'Get status change events' },
           { path: '/check-status', method: 'POST', description: 'Manual status check' },
           { path: '/statistics', method: 'GET', description: 'Get statistics (query params: start, end)' },
+          { path: '/api/alert/config', method: 'GET', description: 'Get idle alert config' },
+          { path: '/api/alert/config', method: 'POST', description: 'Update idle alert config (requires X-Admin-Token)' },
+          { path: '/api/alert/logs', method: 'GET', description: 'Get idle alert logs (query params: date, stationId, socketId, success, limit, offset)' },
+          { path: '/api/alert/test', method: 'POST', description: 'Test webhook (requires X-Admin-Token)' },
+          { path: '/api/alert/stats', method: 'GET', description: 'Get idle alert statistics' },
         ]
       }), {
         headers: {
@@ -285,7 +598,7 @@ export default {
   async scheduled(event: ScheduledEvent, env: any, ctx: ExecutionContext): Promise<void> {
     const startTime = Date.now();
     const scheduledTime = new Date(event.scheduledTime);
-    
+
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🔄 [定时任务] 开始执行状态检查');
     console.log('⏰ UTC时间:', scheduledTime.toISOString());
@@ -294,7 +607,7 @@ export default {
     try {
       const result = await performStatusCheck(env);
       const duration = Date.now() - startTime;
-      
+
       console.log('✅ [定时任务] 执行成功');
       console.log('📊 检查结果:', {
         检查耗时: `${duration}ms`,
@@ -311,6 +624,23 @@ export default {
       console.error('💥 错误:', error instanceof Error ? error.message : String(error));
       console.error('📋 错误堆栈:', error instanceof Error ? error.stack : 'N/A');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    }
+
+    // 执行空闲提醒流程（独立于状态检查，失败不影响主流程）
+    try {
+      const alertResult = await runIdleAlertFlow(env, ctx);
+      console.log('[IDLE_ALERT] 空闲提醒流程完成:', {
+        成功: alertResult.success,
+        在时间窗口内: alertResult.inTimeWindow,
+        是工作日: alertResult.isWorkday,
+        空闲插座数: alertResult.idleSocketCount,
+        发送提醒数: alertResult.sentAlertCount,
+        成功数: alertResult.successAlertCount,
+        失败数: alertResult.failedAlertCount,
+      });
+    } catch (error) {
+      console.error('[IDLE_ALERT] 空闲提醒流程异常:', error);
+      // 不抛出异常，避免影响定时任务
     }
   },
 };
@@ -443,6 +773,60 @@ async function runTestFlow(): Promise<any> {
       error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
+}
+
+/**
+ * 校验管理员 Token
+ * @param request 请求对象
+ * @param env 环境变量
+ * @returns 如果校验失败，返回错误响应；如果成功，返回 null
+ */
+function checkAdminToken(request: Request, env: any): Response | null {
+  const token = request.headers.get('X-Admin-Token');
+
+  if (!token) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: '缺少 X-Admin-Token 请求头'
+    }), {
+      status: 401,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  }
+
+  const adminToken = env.ADMIN_API_TOKEN;
+
+  if (!adminToken) {
+    console.error('[AUTH] ADMIN_API_TOKEN 环境变量未配置');
+    return new Response(JSON.stringify({
+      success: false,
+      error: '服务器配置错误'
+    }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  }
+
+  if (token !== adminToken) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Token 无效'
+    }), {
+      status: 403,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  }
+
+  return null; // 校验成功
 }
 
 /**

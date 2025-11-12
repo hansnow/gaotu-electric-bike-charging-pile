@@ -26,7 +26,17 @@ database_name = "gaotu-electric-bike-charging-pile-db"
 database_id = "51413f16-745d-4cd4-9485-6182133e9af5"
 
 [vars]
-# 环境变量可以在这里定义
+# 空闲提醒功能配置（可被数据库配置覆盖）
+IDLE_ALERT_THRESHOLD_MINUTES = "30"
+IDLE_ALERT_TIME_START = "08:00"
+IDLE_ALERT_TIME_END = "17:00"
+IDLE_ALERT_RETRY_TIMES = "2"
+IDLE_ALERT_RETRY_INTERVAL = "60"
+TIMEZONE = "Asia/Shanghai"
+
+# 注意：敏感配置请使用 Secret 设置：
+# wrangler secret put IDLE_ALERT_WEBHOOK_URLS
+# wrangler secret put ADMIN_API_TOKEN
 
 [triggers]
 crons = ["* * * * *"]  # 每分钟执行一次（全天24小时）
