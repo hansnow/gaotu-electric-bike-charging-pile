@@ -35,10 +35,12 @@ export interface IdleSocket {
  * 检测流程：
  * 1. 从 latest_status 读取所有充电桩状态
  * 2. 筛选 status === 'available' 的插座
- * 3. 查询每个插座最近一次变为 'available' 的事件时间
+ * 3. 查询每个插座最近一次变为 'available' 的事件时间（idle_start_time）
  * 4. 计算空闲时长，超过阈值的保留
  * 5. 如果配置了 enabled_station_ids，只保留指定充电桩
- * 6. 去重：查询 idle_alert_logs，如果当天已成功提醒过则跳过
+ * 6. 去重：查询 idle_alert_logs，如果本次空闲周期已成功提醒过则跳过
+ *    - 去重基于 (station_id, socket_id, idle_start_time)
+ *    - 如果插座中间被占用过，再次空闲时会产生新的 idle_start_time，会重新提醒
  */
 export async function detectIdleSockets(
   db: D1Database,
@@ -144,22 +146,25 @@ export async function detectIdleSockets(
       }
     }
 
-    // 7. 去重检查：过滤掉今天已成功提醒过的插座
-    const dateStr = formatBeijingDate(now);
+    // 7. 去重检查：过滤掉本次空闲周期已成功提醒过的插座
+    // 注意：基于 idle_start_time 去重，而不是 log_date
+    // 这样如果插座中间被占用过，再次空闲时会重新提醒
     const dedupedSockets: IdleSocket[] = [];
 
     for (const socket of filteredSockets) {
+      const idleStartTimeSec = Math.floor(socket.idleStartTime / 1000);
+
       const logResult = await db
         .prepare(
           `SELECT COUNT(*) as count FROM idle_alert_logs
-           WHERE station_id = ? AND socket_id = ? AND log_date = ? AND success = 1`
+           WHERE station_id = ? AND socket_id = ? AND idle_start_time = ? AND success = 1`
         )
-        .bind(socket.stationId, socket.socketId, dateStr)
+        .bind(socket.stationId, socket.socketId, idleStartTimeSec)
         .first<{ count: number }>();
 
       if (logResult && logResult.count > 0) {
         console.log(
-          `[IDLE_ALERT] 充电桩 ${socket.stationName} 插座 ${socket.socketId} 今日已提醒，跳过`
+          `[IDLE_ALERT] 充电桩 ${socket.stationName} 插座 ${socket.socketId} 本次空闲周期已提醒，跳过`
         );
         continue;
       }
@@ -176,24 +181,3 @@ export async function detectIdleSockets(
   }
 }
 
-/**
- * 格式化北京时间为 YYYY-MM-DD
- *
- * @param date 日期对象
- * @returns YYYY-MM-DD 格式的字符串
- */
-function formatBeijingDate(date: Date): string {
-  const bjFormatter = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-
-  const parts = bjFormatter.formatToParts(date);
-  const year = parts.find((p) => p.type === 'year')?.value;
-  const month = parts.find((p) => p.type === 'month')?.value;
-  const day = parts.find((p) => p.type === 'day')?.value;
-
-  return `${year}-${month}-${day}`;
-}

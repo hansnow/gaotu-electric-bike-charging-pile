@@ -111,9 +111,10 @@
 3. **`idle-alert/idle-detector.ts`**：
    - `detectIdleSockets(db, config, now: Date): Promise<IdleSocket[]>`。
    - 读取 `latest_status`，筛选 `status === 'available'` 的插座。
-   - 对每个插座查询最近一次 `status_events.new_status = 'available'` 事件计算空闲分钟数。
+   - 对每个插座查询最近一次 `status_events.new_status = 'available'` 事件计算空闲分钟数（`idle_start_time`）。
    - 如 `config.enabled_station_ids` 非空，仅保留被启用的充电桩。
-   - 去重检查：若 `idle_alert_logs` 存在同日成功记录（`success = 1`）则跳过。
+   - 去重检查：若 `idle_alert_logs` 存在同一空闲周期的成功记录（基于 `station_id, socket_id, idle_start_time` 且 `success = 1`）则跳过。
+   - 如果插座中间被占用过，会产生新的 `idle_start_time`，会重新提醒。
    - 返回对象包含 `stationId/name/socketId/idleMinutes/idleStartTime`。
 4. **`idle-alert/alert-sender.ts`**：
    - 实现 `withTimeout(fetchPromise, timeoutMs)`：使用 `AbortController` + `setTimeout`，避免 `AbortSignal.timeout`（Workers 不支持）。

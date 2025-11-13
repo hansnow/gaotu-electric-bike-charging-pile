@@ -27,7 +27,9 @@
    - 自动判定工作日（集成 Apple iCloud 中国节假日日历）
 
 3. **去重机制**
-   - 每日去重：同一插座每天只提醒一次
+   - 基于空闲周期去重：同一插座的同一次空闲周期只提醒一次
+   - 去重判定基于 `(station_id, socket_id, idle_start_time)` 三元组
+   - 如果插座中间被占用过，再次空闲时会产生新的 `idle_start_time`，会重新提醒
    - 基于 `idle_alert_logs` 表的 `success = 1` 记录判定
    - 失败的提醒不计入去重，允许重试
 
@@ -47,7 +49,7 @@
 ✅ 今天是工作日（非周末且非节假日）
 ✅ 插座状态为 available
 ✅ 空闲时长 >= idle_threshold_minutes
-✅ 今天该插座尚未成功提醒
+✅ 本次空闲周期该插座尚未成功提醒（基于 idle_start_time）
 ✅ 已配置有效的 Webhook URL
 ```
 
@@ -459,11 +461,12 @@ ORDER BY log_date DESC;
 3. 验证 Webhook URL 是否可访问
 4. 检查 Webhook 接收端是否正常
 
-**问题 3：重复提醒**
+**问题 3：同一空闲周期重复提醒**
 
-- 去重机制基于 `success = 1` 的记录
+- 去重机制基于 `(station_id, socket_id, idle_start_time)` 和 `success = 1` 的记录
 - 如果所有尝试都失败（`success = 0`），下次仍会尝试
-- 检查 `idle_alert_logs` 表确认去重是否生效
+- 检查 `idle_alert_logs` 表确认 `idle_start_time` 是否一致
+- 如果插座中间被占用过，会产生新的 `idle_start_time`，再次提醒是正常的
 
 ---
 
