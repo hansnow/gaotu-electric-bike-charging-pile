@@ -28,6 +28,12 @@ export interface IdleAlertConfig {
   retry_times: number;
   /** 重试间隔（秒） */
   retry_interval_seconds: number;
+  /** 是否启用飞书提醒：1=启用，0=禁用 */
+  lark_enabled: number;
+  /** 飞书鉴权令牌 */
+  lark_auth_token: string | null;
+  /** 飞书群组 ID */
+  lark_chat_id: string | null;
   /** 创建时间（Unix 时间戳） */
   created_at: number;
   /** 更新时间（Unix 时间戳） */
@@ -46,6 +52,9 @@ export interface UpdateConfigPayload {
   enabled?: number;
   retry_times?: number;
   retry_interval_seconds?: number;
+  lark_enabled?: number;
+  lark_auth_token?: string | null;
+  lark_chat_id?: string | null;
 }
 
 /**
@@ -253,6 +262,21 @@ export async function updateConfig(
     if (payload.retry_interval_seconds !== undefined) {
       updateFields.push('retry_interval_seconds = ?');
       params.push(payload.retry_interval_seconds);
+    }
+
+    if (payload.lark_enabled !== undefined) {
+      updateFields.push('lark_enabled = ?');
+      params.push(payload.lark_enabled);
+    }
+
+    if (payload.lark_auth_token !== undefined) {
+      updateFields.push('lark_auth_token = ?');
+      params.push(payload.lark_auth_token);
+    }
+
+    if (payload.lark_chat_id !== undefined) {
+      updateFields.push('lark_chat_id = ?');
+      params.push(payload.lark_chat_id);
     }
 
     if (updateFields.length === 0) {

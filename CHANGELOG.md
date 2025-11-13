@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-11-13
+
+### Added
+- **飞书消息集成**：空闲提醒功能新增飞书消息发送支持
+  - 新增 `idle-alert/lark-sender.ts` 模块，实现飞书消息发送
+  - 支持向飞书群组发送空闲提醒消息
+  - 消息使用固定模板：`x号充电桩y号插座已经空闲z分钟啦`
+  - 飞书消息与 Webhook 并行发送，互不影响
+  - 完整的发送日志记录和错误处理
+
+### Changed
+- **数据库结构变更**：
+  - `idle_alert_config` 表新增字段：`lark_enabled`、`lark_auth_token`、`lark_chat_id`
+  - `idle_alert_logs` 表新增字段：`lark_message_id`、`lark_success`、`lark_error_message`、`lark_response_time_ms`
+  - 应用数据库迁移脚本 `0003_add-lark-support.sql`
+
+- **API 更新**：
+  - 配置查询接口返回飞书相关字段
+  - 配置更新接口支持飞书配置参数
+  - 日志查询接口返回飞书发送结果
+
+- **服务层优化**：
+  - `idle-alert/service.ts` 集成飞书消息发送流程
+  - `idle-alert/config.ts` 扩展配置接口支持飞书字段
+
+### Documentation
+- 新增 [飞书消息集成文档](./docs/lark-integration.md)
+  - 详细的功能特性和架构设计说明
+  - 完整的 API 使用示例和错误处理说明
+  - 性能考虑、安全性和监控建议
+- 更新 [API 文档](./API.md)，添加飞书配置和日志字段说明
+- 更新 [README](./README.md)，完善项目结构和功能特性说明
+
+### Technical Details
+- 修改文件：
+  - `idle-alert/lark-sender.ts`: 新增飞书消息发送模块
+  - `idle-alert/config.ts`: 扩展配置接口，新增飞书相关字段
+  - `idle-alert/service.ts`: 集成飞书消息发送到空闲提醒流程
+  - `migrations/0003_add-lark-support.sql`: 数据库迁移脚本
+  - `API.md`: 更新 API 文档
+  - `README.md`: 更新项目文档
+  - `docs/lark-integration.md`: 新增飞书集成文档
+
 ## [1.1.0] - 2025-11-13
 
 ### Fixed
@@ -47,5 +90,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 空闲提醒配置管理
   - 统计数据展示
 
+[1.2.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/releases/tag/v1.0.0

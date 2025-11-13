@@ -640,6 +640,9 @@ GET /api/alert/config
     "enabled": 1,
     "retry_times": 2,
     "retry_interval_seconds": 60,
+    "lark_enabled": 0,
+    "lark_auth_token": null,
+    "lark_chat_id": null,
     "created_at": 1762938823,
     "updated_at": 1762938823
   }
@@ -658,7 +661,10 @@ Content-Type: application/json
   "time_range_start": "09:00",
   "time_range_end": "18:00",
   "webhook_urls": "[\"https://webhook.site/xxx\"]",
-  "enabled": 1
+  "enabled": 1,
+  "lark_enabled": 1,
+  "lark_auth_token": "your-lark-auth-token",
+  "lark_chat_id": "oc_xxx"
 }
 ```
 
@@ -670,6 +676,9 @@ Content-Type: application/json
 - `retry_times`: 0-10 之间
 - `retry_interval_seconds`: 1-300 之间
 - `enabled_station_ids`: JSON 数组或 null
+- `lark_enabled`: 0（禁用）或 1（启用）
+- `lark_auth_token`: 飞书鉴权令牌（字符串）
+- `lark_chat_id`: 飞书群组 ID（可选，如果配置了默认群组可不传）
 
 **响应**:
 ```json
@@ -722,7 +731,11 @@ GET /api/alert/logs?date=2025-11-12&limit=100&offset=0
       "retry_count": 0,
       "triggered_at": 1762938823,
       "sent_at": 1762938823,
-      "log_date": "2025-11-12"
+      "log_date": "2025-11-12",
+      "lark_message_id": "om_xxx",
+      "lark_success": 1,
+      "lark_error_message": null,
+      "lark_response_time_ms": 156
     }
   ],
   "count": 1
@@ -844,7 +857,46 @@ HTTP 状态码：
 
 ---
 
+## 飞书消息发送
+
+空闲提醒功能支持通过飞书消息通知。当检测到空闲插座时，系统会同时：
+1. 发送 Webhook 请求到配置的 URL
+2. 发送飞书消息到配置的群组（如果启用）
+
+### 消息格式
+
+飞书消息使用固定模板：`x号充电桩y号插座已经空闲z分钟啦`
+
+例如：`1号充电桩2号插座已经空闲30分钟啦`
+
+### 配置方式
+
+通过更新配置接口启用飞书提醒：
+
+```json
+{
+  "lark_enabled": 1,
+  "lark_auth_token": "your-lark-auth-token",
+  "lark_chat_id": "oc_xxx"
+}
+```
+
+- `lark_enabled`: 设置为 1 启用，0 禁用
+- `lark_auth_token`: 飞书消息服务的鉴权令牌（必填）
+- `lark_chat_id`: 飞书群组 ID（可选，如果服务端配置了默认群组）
+
+### 日志记录
+
+飞书消息发送结果会记录在日志中：
+- `lark_message_id`: 飞书消息 ID
+- `lark_success`: 发送是否成功（1=成功，0=失败）
+- `lark_error_message`: 错误信息（如果失败）
+- `lark_response_time_ms`: 响应时间（毫秒）
+
+---
+
 ## 相关文档
 
 - [空闲提醒功能实现文档](./docs/idle-alert-implementation.md)
 - [空闲提醒功能设计文档](./docs/idle-alert-design.md)
+- [飞书消息集成文档](./docs/lark-integration.md)

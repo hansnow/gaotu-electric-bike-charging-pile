@@ -10,6 +10,7 @@ import { loadConfig, type IdleAlertConfig, type IdleAlertEnv } from './config';
 import { createHolidayChecker } from './holiday-checker';
 import { detectIdleSockets, type IdleSocket } from './idle-detector';
 import { sendToAll, type SendResult, type WebhookPayload } from './alert-sender';
+import { sendLarkMessage, type LarkSendResult, type LarkConfig } from './lark-sender';
 
 /**
  * 空闲提醒流程执行结果
@@ -170,10 +171,17 @@ export async function runIdleAlertFlow(
       };
     }
 
-    // 7. 为每个空闲插座发送 Webhook
+    // 7. 为每个空闲插座发送 Webhook 和飞书消息
     let totalSent = 0;
     let totalSuccess = 0;
     let totalFailed = 0;
+
+    // 构建飞书配置
+    const larkConfig: LarkConfig = {
+      enabled: config.lark_enabled === 1,
+      authToken: config.lark_auth_token || '',
+      chatId: config.lark_chat_id || undefined,
+    };
 
     for (const socket of idleSockets) {
       // 构建 Webhook Payload
@@ -189,8 +197,19 @@ export async function runIdleAlertFlow(
       totalSuccess += results.filter((r) => r.success).length;
       totalFailed += results.filter((r) => !r.success).length;
 
+      // 发送飞书消息
+      let larkResult: LarkSendResult | undefined;
+      if (larkConfig.enabled) {
+        larkResult = await sendLarkMessage(larkConfig, {
+          stationId: socket.stationId,
+          stationName: socket.stationName,
+          socketId: socket.socketId,
+          idleMinutes: socket.idleMinutes,
+        });
+      }
+
       // 8. 保存日志（使用 waitUntil 异步执行，避免阻塞）
-      const saveLogsPromise = saveLogs(env.DB, socket, results, bjTime);
+      const saveLogsPromise = saveLogs(env.DB, socket, results, bjTime, larkResult);
       if (ctx) {
         ctx.waitUntil(saveLogsPromise);
       } else {
@@ -266,7 +285,8 @@ async function saveLogs(
   db: D1Database,
   socket: IdleSocket,
   results: SendResult[],
-  bjTime: BeijingTime
+  bjTime: BeijingTime,
+  larkResult?: LarkSendResult
 ): Promise<void> {
   try {
     const triggeredAt = Math.floor(Date.now() / 1000);
@@ -280,8 +300,9 @@ async function saveLogs(
           `INSERT INTO idle_alert_logs
           (id, station_id, station_name, socket_id, idle_minutes, idle_start_time,
            webhook_url, request_payload, response_status, response_body, response_time_ms,
-           success, error_message, retry_count, triggered_at, sent_at, log_date)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           success, error_message, retry_count, triggered_at, sent_at, log_date,
+           lark_message_id, lark_success, lark_error_message, lark_response_time_ms)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           logId,
@@ -300,7 +321,11 @@ async function saveLogs(
           result.retryCount,
           triggeredAt,
           triggeredAt,
-          bjTime.dateString
+          bjTime.dateString,
+          larkResult?.messageId || null,
+          larkResult ? (larkResult.success ? 1 : 0) : null,
+          larkResult?.error || null,
+          larkResult?.elapsedMs || null
         );
     });
 
