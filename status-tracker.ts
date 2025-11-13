@@ -88,17 +88,21 @@ export function parsePortStatus(ports: number[], totalPorts: number): Socket[] {
 }
 
 /**
- * 获取格式化的时间字符串
+ * 获取格式化的时间字符串（北京时间）
  */
 export function getTimeString(date: Date = new Date()): string {
-  return date.toISOString().replace('T', ' ').substring(0, 19);
+  // 转换为北京时间字符串 (UTC+8)
+  const bjDate = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  return bjDate.toISOString().replace('T', ' ').substring(0, 19);
 }
 
 /**
- * 获取日期字符串（用于KV键）
+ * 获取日期字符串（北京时间，用于KV键）
  */
 export function getDateString(date: Date = new Date()): string {
-  return date.toISOString().substring(0, 10); // YYYY-MM-DD
+  // 转换为北京时间日期字符串 (UTC+8)
+  const bjDate = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  return bjDate.toISOString().substring(0, 10); // YYYY-MM-DD
 }
 
 /**

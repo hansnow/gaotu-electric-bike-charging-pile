@@ -1383,16 +1383,13 @@
             }
         }
 
-        // 将UTC时间字符串转换为北京时间显示
-        function formatBeijingTime(utcTimeString) {
-            // utcTimeString 格式: "2025-10-11 15:44:45"
-            // 将其转换为ISO格式以便Date对象解析
-            const isoString = utcTimeString.replace(' ', 'T') + 'Z';
-            const date = new Date(isoString);
-            
-            // 转换为北京时间字符串
-            return date.toLocaleString('zh-CN', { 
-                timeZone: 'Asia/Shanghai',
+        // 格式化北京时间字符串显示
+        function formatBeijingTime(beijingTimeString) {
+            // beijingTimeString 格式: "2025-11-13 00:16:55"（已经是北京时间）
+            // 直接格式化显示即可，不需要时区转换
+            const date = new Date(beijingTimeString.replace(' ', 'T'));
+
+            return date.toLocaleString('zh-CN', {
                 year: 'numeric',
                 month: '2-digit',
                 day: '2-digit',

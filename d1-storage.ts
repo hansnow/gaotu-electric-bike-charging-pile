@@ -91,7 +91,11 @@ export async function getEventsD1(
   date: string
 ): Promise<StatusChangeEvent[]> {
   // date 格式: YYYY-MM-DD
-  const startTimestamp = new Date(`${date}T00:00:00Z`).getTime();
+  // 北京时间（UTC+8）转换为 UTC 时间戳
+  // 例如：查询 2025-11-13 的事件，应该是北京时间 2025-11-13 00:00 到 2025-11-14 00:00
+  // 对应 UTC 时间 2025-11-12 16:00 到 2025-11-13 16:00
+  const bjOffset = 8 * 60 * 60 * 1000; // 北京时区偏移量（8小时）
+  const startTimestamp = new Date(`${date}T00:00:00Z`).getTime() - bjOffset;
   const endTimestamp = startTimestamp + 24 * 60 * 60 * 1000;
 
   const result = await db.prepare(`
@@ -121,8 +125,10 @@ export async function getEventsInRangeD1(
   startDate: string,
   endDate: string
 ): Promise<StatusChangeEvent[]> {
-  const startTimestamp = new Date(`${startDate}T00:00:00Z`).getTime();
-  const endTimestamp = new Date(`${endDate}T00:00:00Z`).getTime() + 24 * 60 * 60 * 1000;
+  // 北京时间（UTC+8）转换为 UTC 时间戳
+  const bjOffset = 8 * 60 * 60 * 1000; // 北京时区偏移量（8小时）
+  const startTimestamp = new Date(`${startDate}T00:00:00Z`).getTime() - bjOffset;
+  const endTimestamp = new Date(`${endDate}T00:00:00Z`).getTime() - bjOffset + 24 * 60 * 60 * 1000;
 
   const result = await db.prepare(`
     SELECT * FROM status_events
@@ -150,8 +156,10 @@ export async function getStatisticsD1(
   startDate: string,
   endDate: string
 ) {
-  const startTimestamp = new Date(`${startDate}T00:00:00Z`).getTime();
-  const endTimestamp = new Date(`${endDate}T00:00:00Z`).getTime() + 24 * 60 * 60 * 1000;
+  // 北京时间（UTC+8）转换为 UTC 时间戳
+  const bjOffset = 8 * 60 * 60 * 1000; // 北京时区偏移量（8小时）
+  const startTimestamp = new Date(`${startDate}T00:00:00Z`).getTime() - bjOffset;
+  const endTimestamp = new Date(`${endDate}T00:00:00Z`).getTime() - bjOffset + 24 * 60 * 60 * 1000;
 
   // 每天的变化统计
   const dailyStats = await db.prepare(`

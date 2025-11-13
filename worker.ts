@@ -150,10 +150,18 @@ export default {
 
         try {
           const events = await getEventsD1(env.DB, targetDate);
+
+          // 修正历史数据的 timeString，确保使用北京时间
+          // 旧数据的 timeString 可能是 UTC 时间，这里根据 timestamp 重新生成
+          const fixedEvents = events.map(event => ({
+            ...event,
+            timeString: getTimeString(new Date(event.timestamp))
+          }));
+
           return new Response(JSON.stringify({
             success: true,
             date: targetDate,
-            events: events
+            events: fixedEvents
           }), {
             headers: {
               'Content-Type': 'application/json',
