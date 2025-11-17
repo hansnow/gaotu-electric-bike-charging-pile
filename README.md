@@ -36,6 +36,7 @@ gaotu-electric-bike-charging-pile/
 ├── docs/                      # 文档目录
 │   ├── idle-alert-design.md           # 空闲提醒设计文档
 │   ├── idle-alert-implementation.md   # 空闲提醒实现文档
+│   ├── idle-alert-window-summary.md   # 窗口汇总功能文档
 │   └── lark-integration.md            # 飞书集成文档
 ├── wrangler.toml              # Cloudflare Workers 配置
 ├── tsconfig.json              # TypeScript 配置
@@ -464,12 +465,14 @@ npx wrangler tail --format pretty | grep "状态变化"
 空闲提醒功能可以自动检测充电桩插座空闲超过阈值时间，并在工作时间通过以下方式发送提醒：
 1. **Webhook 通知**：向配置的 URL 发送 POST 请求
 2. **飞书消息**：向飞书群组发送文本消息（可选）
+3. **窗口汇总**：在时间窗口开始/结束时发送汇总消息（v1.3.0+）
 
 ### 核心特性
 
 - ✅ 智能检测插座空闲时长
 - ✅ 工作时间窗口控制（可配置）
 - ✅ 节假日自动识别（集成 Apple iCloud 日历）
+- ✅ 窗口汇总消息（避免时间窗口开始时的消息轰炸）
 - ✅ 基于空闲周期的去重机制
 - ✅ Webhook 支持失败重试
 - ✅ 飞书消息实时发送
@@ -519,6 +522,7 @@ curl "https://electric-bike-charging-pile.hansnow.me/api/alert/logs?date=2025-11
 
 - [空闲提醒功能设计文档](./docs/idle-alert-design.md)
 - [空闲提醒功能实现文档](./docs/idle-alert-implementation.md)
+- [窗口汇总功能文档](./docs/idle-alert-window-summary.md) 🆕
 - [飞书消息集成文档](./docs/lark-integration.md)
 - [完整 API 文档](./API.md#空闲提醒接口)
 
@@ -578,7 +582,18 @@ ISC License
 
 ## 更新日志
 
-### v2.1.0 (2025-11-13)
+### v1.3.0 (2025-11-17)
+
+**空闲提醒窗口汇总功能**
+- ✅ 新增窗口汇总消息功能，优化用户体验
+- ✅ 时间窗口开始时（如 08:00）：发送汇总消息，跳过单条提醒
+- ✅ 时间窗口结束时（如 17:00）：发送汇总消息，继续单条提醒
+- ✅ 飞书汇总消息：「🔔充电桩小助手开始上班啦」/「🥳下班啦」
+- ✅ Webhook 汇总消息：包含所有空闲插座详细列表
+- ✅ 消息数量大幅减少，避免消息轰炸
+- ✅ 完整的窗口汇总功能文档
+
+### v1.2.0 (2025-11-13)
 
 **空闲提醒飞书消息集成**
 - ✅ 新增飞书消息发送模块 (`idle-alert/lark-sender.ts`)

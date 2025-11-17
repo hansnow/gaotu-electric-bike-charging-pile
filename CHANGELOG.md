@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-11-17
+
+### Added
+- **窗口汇总消息功能**：优化空闲提醒体验，解决时间窗口开始时的消息轰炸问题
+  - 新增 `getAllAvailableSockets()` 函数：查询所有空闲插座（不考虑阈值）
+  - 新增 `isExactTime()` 函数：精确判断窗口开始/结束时间（±1分钟容差）
+  - 新增 `sendSummaryWebhook()` 函数：发送汇总 Webhook 消息
+  - 新增 `sendSummaryToLark()` 函数：发送汇总飞书消息
+
+- **窗口开始汇总**（如 08:00）：
+  - 飞书消息：`🔔充电桩小助手开始上班啦！当前还剩 x 个空闲充电桩，有需要的小伙伴快去充电哟~`
+  - Webhook 消息：包含所有空闲插座的详细列表
+  - 发送汇总后跳过单条提醒，避免消息轰炸
+
+- **窗口结束汇总**（如 17:00）：
+  - 飞书消息：`🥳充电桩小助手下班啦，当前共有 x 个空闲充电桩，有需要的小伙伴快去充电吧！`
+  - Webhook 消息：包含所有空闲插座的详细列表
+  - 发送汇总后继续执行单条提醒
+
+### Changed
+- **主流程优化**：
+  - `runIdleAlertFlow()` 增加窗口开始/结束时间检测
+  - 窗口内其他时间保持原有单条提醒逻辑不变
+
+- **Webhook Payload 扩展**：
+  - 新增 `SummaryWebhookPayload` 接口
+  - 支持 `window_start` 和 `window_end` 两种新的 `alertType`
+  - 提供 `totalAvailableSockets` 快速统计字段
+  - 提供 `sockets` 数组包含所有空闲插座详情
+
+### Documentation
+- 新增 [窗口汇总功能文档](./docs/idle-alert-window-summary.md)
+  - 详细的问题背景和优化目标
+  - 完整的实现方案和技术细节
+  - 测试方法和验证步骤
+  - Before/After 效果对比
+
+### Technical Details
+- 修改文件：
+  - `idle-alert/idle-detector.ts`: 新增 `getAllAvailableSockets()` 函数
+  - `idle-alert/service.ts`: 新增 `isExactTime()` 函数，改造主流程
+  - `idle-alert/alert-sender.ts`: 新增 `SummaryWebhookPayload` 接口和 `sendSummaryWebhook()` 函数
+  - `idle-alert/lark-sender.ts`: 新增 `sendSummaryToLark()` 函数
+  - `docs/idle-alert-window-summary.md`: 新增窗口汇总功能文档
+
+### Performance
+- **消息数量优化**：时间窗口开始时，从发送 N 条单条提醒减少到 1 条汇总消息
+- **用户体验提升**：消除消息轰炸，提供友好的汇总提示
+- **信息完整性保证**：Webhook 中仍包含所有插座的详细信息，不丢失任何数据
+
 ## [1.2.0] - 2025-11-13
 
 ### Added
@@ -90,6 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 空闲提醒配置管理
   - 统计数据展示
 
+[1.3.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/releases/tag/v1.0.0

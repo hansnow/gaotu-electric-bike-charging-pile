@@ -24,6 +24,129 @@ export interface IdleSocket {
 }
 
 /**
+ * 获取所有空闲插座（不考虑时长阈值）
+ *
+ * @param db D1 数据库实例
+ * @param config 提醒配置
+ * @param now 当前时间
+ * @returns 所有空闲插座列表
+ *
+ * @remarks
+ * 检测流程：
+ * 1. 从 latest_status 读取所有充电桩状态
+ * 2. 筛选 status === 'available' 的插座
+ * 3. 查询每个插座最近一次变为 'available' 的事件时间（idle_start_time）
+ * 4. 计算空闲时长（不过滤阈值）
+ * 5. 如果配置了 enabled_station_ids，只保留指定充电桩
+ *
+ * 用于时间窗口开始/结束时的汇总消息
+ */
+export async function getAllAvailableSockets(
+  db: D1Database,
+  config: IdleAlertConfig,
+  now: Date = new Date()
+): Promise<IdleSocket[]> {
+  try {
+    console.log('[IDLE_ALERT] 开始获取所有空闲插座');
+
+    // 1. 读取所有充电桩的最新状态
+    const statusResult = await db
+      .prepare('SELECT * FROM latest_status WHERE online = 1')
+      .all();
+
+    if (!statusResult.results || statusResult.results.length === 0) {
+      console.log('[IDLE_ALERT] 没有在线的充电桩');
+      return [];
+    }
+
+    console.log(`[IDLE_ALERT] 找到 ${statusResult.results.length} 个在线充电桩`);
+
+    const allSockets: IdleSocket[] = [];
+
+    // 2. 遍历每个充电桩，获取空闲插座
+    for (const row of statusResult.results) {
+      const stationId = row.station_id as number;
+      const stationName = row.station_name as string;
+      const socketsJson = row.sockets as string;
+
+      // 解析 sockets JSON
+      let sockets: Array<{ id: number; status: string }>;
+      try {
+        sockets = JSON.parse(socketsJson);
+      } catch (e) {
+        console.error(`[IDLE_ALERT] 解析充电桩 ${stationId} 的 sockets 失败:`, e);
+        continue;
+      }
+
+      // 3. 筛选空闲插座
+      const availableSockets = sockets.filter((s) => s.status === 'available');
+
+      if (availableSockets.length === 0) {
+        continue;
+      }
+
+      // 4. 对每个空闲插座，查询最近一次变为 available 的事件
+      for (const socket of availableSockets) {
+        const socketId = socket.id;
+
+        // 查询最近一次 new_status = 'available' 的事件
+        const eventResult = await db
+          .prepare(
+            `SELECT timestamp FROM status_events
+             WHERE station_id = ? AND socket_id = ? AND new_status = 'available'
+             ORDER BY timestamp DESC
+             LIMIT 1`
+          )
+          .bind(stationId, socketId)
+          .first<{ timestamp: number }>();
+
+        if (!eventResult) {
+          console.warn(
+            `[IDLE_ALERT] 充电桩 ${stationName} 插座 ${socketId} 没有找到 available 事件`
+          );
+          continue;
+        }
+
+        const idleStartTime = eventResult.timestamp;
+        const idleMinutes = Math.floor((now.getTime() - idleStartTime) / 60000);
+
+        // 不过滤阈值，全部加入列表
+        allSockets.push({
+          stationId,
+          stationName,
+          socketId,
+          idleMinutes,
+          idleStartTime,
+        });
+      }
+    }
+
+    console.log(`[IDLE_ALERT] 找到 ${allSockets.length} 个空闲插座`);
+
+    // 5. 如果配置了 enabled_station_ids，只保留指定充电桩
+    let filteredSockets = allSockets;
+    if (config.enabled_station_ids) {
+      try {
+        const enabledIds: number[] = JSON.parse(config.enabled_station_ids);
+        if (enabledIds.length > 0) {
+          filteredSockets = allSockets.filter((s) => enabledIds.includes(s.stationId));
+          console.log(
+            `[IDLE_ALERT] 应用充电桩筛选后剩余 ${filteredSockets.length} 个插座`
+          );
+        }
+      } catch (e) {
+        console.error('[IDLE_ALERT] 解析 enabled_station_ids 失败:', e);
+      }
+    }
+
+    return filteredSockets;
+  } catch (error) {
+    console.error('[IDLE_ALERT] 获取空闲插座失败:', error);
+    throw error;
+  }
+}
+
+/**
  * 检测空闲插座
  *
  * @param db D1 数据库实例

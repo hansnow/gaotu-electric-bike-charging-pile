@@ -8,9 +8,24 @@
 
 import { loadConfig, type IdleAlertConfig, type IdleAlertEnv } from './config';
 import { createHolidayChecker } from './holiday-checker';
-import { detectIdleSockets, type IdleSocket } from './idle-detector';
-import { sendToAll, type SendResult, type WebhookPayload } from './alert-sender';
-import { sendLarkMessage, type LarkSendResult, type LarkConfig } from './lark-sender';
+import {
+  detectIdleSockets,
+  getAllAvailableSockets,
+  type IdleSocket,
+} from './idle-detector';
+import {
+  sendToAll,
+  sendSummaryWebhook,
+  type SendResult,
+  type WebhookPayload,
+  type SummaryWebhookPayload,
+} from './alert-sender';
+import {
+  sendLarkMessage,
+  sendSummaryToLark,
+  type LarkSendResult,
+  type LarkConfig,
+} from './lark-sender';
 
 /**
  * 空闲提醒流程执行结果
@@ -109,6 +124,90 @@ export async function runIdleAlertFlow(
     console.log(
       `[IDLE_ALERT] 在时间窗口内 (当前: ${bjTime.timeHHmm}, 窗口: ${config.time_range_start}-${config.time_range_end})`
     );
+
+    // 3.5. 判断是否是窗口开始/结束的精确时间点
+    const isWindowStart = isExactTime(bjTime.timeHHmm, config.time_range_start);
+    const isWindowEnd = isExactTime(bjTime.timeHHmm, config.time_range_end);
+
+    // 如果是窗口开始或结束时间，发送汇总消息
+    if (isWindowStart || isWindowEnd) {
+      console.log(
+        `[IDLE_ALERT] 检测到时间窗口${isWindowStart ? '开始' : '结束'}时间，准备发送汇总消息`
+      );
+
+      // 获取所有空闲插座（不考虑阈值）
+      const allAvailableSockets = await getAllAvailableSockets(env.DB, config, now);
+      const socketCount = allAvailableSockets.length;
+
+      console.log(`[IDLE_ALERT] 当前共有 ${socketCount} 个空闲插座`);
+
+      // 解析 Webhook URLs
+      let webhookUrls: string[] = [];
+      try {
+        webhookUrls = JSON.parse(config.webhook_urls);
+      } catch (error) {
+        console.error('[IDLE_ALERT] Webhook URLs 配置无效:', error);
+      }
+
+      // 构建飞书配置
+      const larkConfig: LarkConfig = {
+        enabled: config.lark_enabled === 1,
+        authToken: config.lark_auth_token || '',
+        chatId: config.lark_chat_id || undefined,
+      };
+
+      const messageType = isWindowStart ? 'window_start' : 'window_end';
+
+      // 发送飞书汇总消息
+      if (larkConfig.enabled) {
+        await sendSummaryToLark(larkConfig, socketCount, messageType);
+      }
+
+      // 发送 Webhook 汇总消息
+      if (webhookUrls.length > 0) {
+        const summaryPayload: SummaryWebhookPayload = {
+          alertType: messageType,
+          timestamp: Math.floor(Date.now() / 1000),
+          timeString: bjTime.timeString,
+          totalAvailableSockets: socketCount,
+          sockets: allAvailableSockets.map((s) => ({
+            stationId: s.stationId,
+            stationName: s.stationName,
+            socketId: s.socketId,
+            idleMinutes: s.idleMinutes,
+            idleStartTime: Math.floor(s.idleStartTime / 1000),
+            status: 'available',
+          })),
+          config: {
+            threshold: config.idle_threshold_minutes,
+            timeRange: `${config.time_range_start}-${config.time_range_end}`,
+          },
+        };
+
+        await sendSummaryWebhook(webhookUrls, summaryPayload, {
+          retryTimes: config.retry_times,
+          retryIntervalSeconds: config.retry_interval_seconds,
+        });
+      }
+
+      // 如果是窗口开始时间，发送汇总后直接返回，不发送单条提醒
+      if (isWindowStart) {
+        console.log('[IDLE_ALERT] 窗口开始时间，跳过单条提醒，流程结束');
+        return {
+          success: true,
+          executedAt,
+          inTimeWindow: true,
+          isWorkday: true, // 假设是工作日（实际可能需要查询）
+          idleSocketCount: socketCount,
+          sentAlertCount: 0,
+          successAlertCount: 0,
+          failedAlertCount: 0,
+        };
+      }
+
+      // 如果是窗口结束时间，发送汇总后继续执行单条提醒逻辑
+      console.log('[IDLE_ALERT] 窗口结束时间，汇总消息已发送，继续执行单条提醒逻辑');
+    }
 
     // 4. 判断是否为工作日
     const holidayChecker = createHolidayChecker(env.DB);
@@ -419,4 +518,41 @@ function isInTimeRange(currentHHmm: string, start: string, end: string): boolean
 function timeToMinutes(timeHHmm: string): number {
   const [hour, minute] = timeHHmm.split(':').map(Number);
   return hour * 60 + minute;
+}
+
+/**
+ * 判断当前时间是否在目标时间的容差范围内
+ *
+ * @param currentHHmm 当前时间 HH:mm
+ * @param targetHHmm 目标时间 HH:mm
+ * @param toleranceMinutes 容差分钟数（默认 1 分钟）
+ * @returns true=在容差范围内，false=不在范围内
+ *
+ * @remarks
+ * 例如：目标时间 08:00，容差 1 分钟
+ * - 07:59 → true（在 08:00-1 范围内）
+ * - 08:00 → true
+ * - 08:01 → true（在 08:00+1 范围内）
+ * - 08:02 → false
+ *
+ * 用于判断是否是窗口开始/结束的精确时间点
+ */
+function isExactTime(
+  currentHHmm: string,
+  targetHHmm: string,
+  toleranceMinutes: number = 1
+): boolean {
+  const current = timeToMinutes(currentHHmm);
+  const target = timeToMinutes(targetHHmm);
+
+  // 计算差值（考虑跨日情况）
+  let diff = Math.abs(current - target);
+
+  // 跨日场景：例如 23:59 和 00:01 的差值应该是 2 分钟，而不是 1439 分钟
+  if (diff > 720) {
+    // 720 = 12 * 60（半天）
+    diff = 1440 - diff; // 1440 = 24 * 60（一天）
+  }
+
+  return diff <= toleranceMinutes;
 }

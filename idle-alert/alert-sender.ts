@@ -36,7 +36,7 @@ export interface RetryConfig {
 }
 
 /**
- * Webhook Payload 接口
+ * Webhook Payload 接口（单条提醒）
  */
 export interface WebhookPayload {
   alertType: 'socket_idle';
@@ -53,6 +53,28 @@ export interface WebhookPayload {
     idleStartTime: number;
     idleStartTimeString: string;
   };
+  config: {
+    threshold: number;
+    timeRange: string;
+  };
+}
+
+/**
+ * 汇总 Webhook Payload 接口
+ */
+export interface SummaryWebhookPayload {
+  alertType: 'window_start' | 'window_end';
+  timestamp: number;
+  timeString: string;
+  totalAvailableSockets: number;
+  sockets: Array<{
+    stationId: number;
+    stationName: string;
+    socketId: number;
+    idleMinutes: number;
+    idleStartTime: number;
+    status: string;
+  }>;
   config: {
     threshold: number;
     timeRange: string;
@@ -196,6 +218,48 @@ export async function sendToAll(
   const failureCount = results.length - successCount;
 
   console.log(`[IDLE_ALERT] Webhook 发送完成: 成功 ${successCount}, 失败 ${failureCount}`);
+
+  return results;
+}
+
+/**
+ * 发送汇总 Webhook 到多个 URL（并行）
+ *
+ * @param urls Webhook URLs
+ * @param payload 汇总请求体
+ * @param retryConfig 重试配置
+ * @param fetchImpl fetch 实现（默认使用全局 fetch）
+ * @returns 发送结果数组
+ */
+export async function sendSummaryWebhook(
+  urls: string[],
+  payload: SummaryWebhookPayload,
+  retryConfig: RetryConfig,
+  fetchImpl: typeof fetch = fetch
+): Promise<SendResult[]> {
+  if (urls.length === 0) {
+    console.warn('[IDLE_ALERT] Webhook URLs 为空，跳过发送汇总消息');
+    return [];
+  }
+
+  console.log(
+    `[IDLE_ALERT] 开始发送汇总 Webhook 到 ${urls.length} 个 URL (类型: ${payload.alertType})`
+  );
+
+  // 并行发送到所有 URL（复用 sendWebhook 函数，payload 类型兼容）
+  const results = await Promise.all(
+    urls.map((url) =>
+      sendWebhook(url, payload as any, retryConfig, fetchImpl)
+    )
+  );
+
+  // 统计成功和失败数量
+  const successCount = results.filter((r) => r.success).length;
+  const failureCount = results.length - successCount;
+
+  console.log(
+    `[IDLE_ALERT] 汇总 Webhook 发送完成: 成功 ${successCount}, 失败 ${failureCount}`
+  );
 
   return results;
 }

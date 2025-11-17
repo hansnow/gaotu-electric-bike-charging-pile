@@ -234,6 +234,119 @@ export async function sendLarkMessages(
 }
 
 /**
+ * 发送汇总飞书消息（用于时间窗口开始/结束）
+ *
+ * @param config 飞书配置
+ * @param count 空闲充电桩数量
+ * @param type 消息类型（'window_start' 或 'window_end'）
+ * @param fetchImpl fetch 实现（默认使用全局 fetch）
+ * @returns 发送结果
+ */
+export async function sendSummaryToLark(
+  config: LarkConfig,
+  count: number,
+  type: 'window_start' | 'window_end',
+  fetchImpl: typeof fetch = fetch
+): Promise<LarkSendResult> {
+  const startTime = Date.now();
+
+  // 如果未启用，直接返回成功
+  if (!config.enabled) {
+    console.log('[IDLE_ALERT] 飞书提醒未启用，跳过发送汇总消息');
+    return {
+      success: true,
+      elapsedMs: 0,
+    };
+  }
+
+  // 验证配置
+  if (!config.authToken) {
+    console.error('[IDLE_ALERT] 飞书 auth_token 未配置');
+    return {
+      success: false,
+      error: '飞书 auth_token 未配置',
+      elapsedMs: 0,
+    };
+  }
+
+  try {
+    // 构建汇总消息文本
+    let messageText: string;
+    if (type === 'window_start') {
+      messageText = `🔔充电桩小助手开始上班啦！当前还剩 ${count} 个空闲充电桩，有需要的小伙伴快去充电哟~`;
+    } else {
+      messageText = `🥳充电桩小助手下班啦，当前共有 ${count} 个空闲充电桩，有需要的小伙伴快去充电吧！`;
+    }
+
+    console.log(`[IDLE_ALERT] 准备发送飞书汇总消息: ${messageText}`);
+
+    // 构建请求体
+    const requestBody: LarkApiRequest = {
+      auth_token: config.authToken,
+      content: JSON.stringify({ text: messageText }),
+    };
+
+    // 如果配置了 chat_id，添加到请求体
+    if (config.chatId) {
+      requestBody.chat_id = config.chatId;
+    }
+
+    // 发送请求
+    const response = await fetchImpl(LARK_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Cloudflare-Worker/Idle-Alert',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const elapsedMs = Date.now() - startTime;
+
+    // 解析响应
+    let responseData: LarkApiResponse;
+    try {
+      responseData = await response.json();
+    } catch (e) {
+      console.error('[IDLE_ALERT] 飞书 API 响应解析失败:', e);
+      return {
+        success: false,
+        error: '飞书 API 响应解析失败',
+        elapsedMs,
+      };
+    }
+
+    // 判断是否成功
+    if (responseData.success && responseData.data?.message_id) {
+      console.log(
+        `[IDLE_ALERT] 飞书汇总消息发送成功: ${responseData.data.message_id}`
+      );
+      return {
+        success: true,
+        messageId: responseData.data.message_id,
+        elapsedMs,
+      };
+    } else {
+      console.error('[IDLE_ALERT] 飞书汇总消息发送失败:', responseData.error);
+      return {
+        success: false,
+        error: responseData.error || '飞书汇总消息发送失败',
+        elapsedMs,
+      };
+    }
+  } catch (error) {
+    const elapsedMs = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[IDLE_ALERT] 飞书汇总消息发送异常:', errorMessage);
+    return {
+      success: false,
+      error: errorMessage,
+      elapsedMs,
+    };
+  }
+}
+
+/**
  * 异步睡眠
  *
  * @param ms 毫秒数
