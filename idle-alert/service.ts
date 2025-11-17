@@ -125,6 +125,26 @@ export async function runIdleAlertFlow(
       `[IDLE_ALERT] 在时间窗口内 (当前: ${bjTime.timeHHmm}, 窗口: ${config.time_range_start}-${config.time_range_end})`
     );
 
+    // 4. 判断是否为工作日（提前检查，避免在非工作日发送窗口汇总消息）
+    const holidayChecker = createHolidayChecker(env.DB);
+    const isWorkday = await holidayChecker.isWorkday(now);
+
+    if (!isWorkday) {
+      console.log('[IDLE_ALERT] 今天是非工作日，跳过提醒');
+      return {
+        success: true,
+        executedAt,
+        inTimeWindow: true,
+        isWorkday: false,
+        idleSocketCount: 0,
+        sentAlertCount: 0,
+        successAlertCount: 0,
+        failedAlertCount: 0,
+      };
+    }
+
+    console.log('[IDLE_ALERT] 今天是工作日');
+
     // 3.5. 判断是否是窗口开始/结束的精确时间点
     const isWindowStart = isExactTime(bjTime.timeHHmm, config.time_range_start);
     const isWindowEnd = isExactTime(bjTime.timeHHmm, config.time_range_end);
@@ -197,7 +217,7 @@ export async function runIdleAlertFlow(
           success: true,
           executedAt,
           inTimeWindow: true,
-          isWorkday: true, // 假设是工作日（实际可能需要查询）
+          isWorkday: true,
           idleSocketCount: socketCount,
           sentAlertCount: 0,
           successAlertCount: 0,
@@ -208,26 +228,6 @@ export async function runIdleAlertFlow(
       // 如果是窗口结束时间，发送汇总后继续执行单条提醒逻辑
       console.log('[IDLE_ALERT] 窗口结束时间，汇总消息已发送，继续执行单条提醒逻辑');
     }
-
-    // 4. 判断是否为工作日
-    const holidayChecker = createHolidayChecker(env.DB);
-    const isWorkday = await holidayChecker.isWorkday(now);
-
-    if (!isWorkday) {
-      console.log('[IDLE_ALERT] 今天是非工作日，跳过提醒');
-      return {
-        success: true,
-        executedAt,
-        inTimeWindow: true,
-        isWorkday: false,
-        idleSocketCount: 0,
-        sentAlertCount: 0,
-        successAlertCount: 0,
-        failedAlertCount: 0,
-      };
-    }
-
-    console.log('[IDLE_ALERT] 今天是工作日');
 
     // 5. 检测空闲插座
     const idleSockets = await detectIdleSockets(env.DB, config, now);
