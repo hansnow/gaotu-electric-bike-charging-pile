@@ -40,18 +40,36 @@ export default {
   async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // 处理静态资源请求
-    if (url.pathname === '/' || url.pathname === '/index.html') {
-      try {
-        return await env.ASSETS.fetch(new Request(request.url));
-      } catch (error) {
-        return new Response('静态资源未找到', {
-          status: 404,
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-          },
-        });
-      }
+    let useNewFrontend = env.USE_NEW_FRONTEND === 'true';
+    const versionParam = url.searchParams.get('version');
+    if (versionParam === 'new') {
+      useNewFrontend = true;
+    } else if (versionParam === 'old') {
+      useNewFrontend = false;
+    }
+
+    const isStaticNewAsset = url.pathname.startsWith('/new/') && url.pathname !== '/new/' && url.pathname !== '/new';
+
+    const isAssetRequest = request.method === 'GET' && (
+      isStaticNewAsset ||
+      url.pathname.startsWith('/assets/') ||
+      url.pathname === '/favicon.ico'
+    );
+
+    if (isAssetRequest) {
+      return serveStaticAsset(request, env);
+    }
+
+    const isRootRequest = request.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html');
+    const isExplicitNewEntry = request.method === 'GET' && (url.pathname === '/new' || url.pathname === '/new/');
+
+    if (isRootRequest || isExplicitNewEntry) {
+      const targetPath = useNewFrontend || isExplicitNewEntry ? '/new/index.html' : '/index.html';
+      return serveStaticAsset(request, env, targetPath);
+    }
+
+    if (useNewFrontend && request.method === 'GET' && url.pathname.startsWith('/new/')) {
+      return serveStaticAsset(request, env);
     }
 
     // 处理 CORS
@@ -660,6 +678,25 @@ const DEFAULT_DEVICE_DETAIL_PARAMS: Omit<DeviceDetailRequest, 'simId'> = {
   appEntrance: 1,
   version: 'new'
 };
+
+async function serveStaticAsset(request: Request, env: any, overridePath?: string): Promise<Response> {
+  const assetUrl = new URL(request.url);
+  if (overridePath) {
+    assetUrl.pathname = overridePath;
+  }
+
+  try {
+    return await env.ASSETS.fetch(new Request(assetUrl.toString(), request));
+  } catch (error) {
+    console.error('静态资源加载失败:', error);
+    return new Response('静态资源未找到', {
+      status: 404,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8'
+      }
+    });
+  }
+}
 
 function normalizeNumber(value: number | undefined, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value)) {

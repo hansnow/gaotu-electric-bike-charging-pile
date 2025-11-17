@@ -33,6 +33,7 @@ IDLE_ALERT_TIME_END = "17:00"
 IDLE_ALERT_RETRY_TIMES = "2"
 IDLE_ALERT_RETRY_INTERVAL = "60"
 TIMEZONE = "Asia/Shanghai"
+USE_NEW_FRONTEND = "false"
 
 # 注意：敏感配置请使用 Secret 设置：
 # wrangler secret put IDLE_ALERT_WEBHOOK_URLS
@@ -47,3 +48,10 @@ crons = ["* * * * *"]  # 每分钟执行一次（全天24小时）
 binding = "CHARGING_EVENTS"
 id = "be17b03b6713467f9114719918a4efb2"
 preview_id = "be17b03b6713467f9114719918a4efb2"
+
+[env.production.vars]
+USE_NEW_FRONTEND = "false"
+
+[env.preview]
+[env.preview.vars]
+USE_NEW_FRONTEND = "true"

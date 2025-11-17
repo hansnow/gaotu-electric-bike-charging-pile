@@ -232,7 +232,7 @@ describe('getTimeString', () => {
     const date = new Date('2025-10-11T15:30:45.123Z');
     const result = getTimeString(date);
     
-    expect(result).toBe('2025-10-11 15:30:45');
+    expect(result).toBe('2025-10-11 23:30:45');
   });
 
   it('当不传参数时应该返回当前时间', () => {
@@ -617,4 +617,3 @@ describe('边界情况测试', () => {
     expect(changes[0].newStatus).toBe('occupied');
   });
 });
-

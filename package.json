@@ -5,13 +5,20 @@
   "main": "worker.ts",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "concurrently \"pnpm --filter frontend dev\" \"pnpm dev:worker\"",
+    "dev:worker": "wrangler dev",
     "dev:prod": "wrangler dev --remote --env production",
-    "deploy": "wrangler deploy",
+    "build": "pnpm --filter frontend build",
+    "build:old": "echo 'Legacy frontend served from public/index.html'",
+    "deploy": "pnpm run build && wrangler deploy",
+    "deploy:preview": "pnpm run build && wrangler deploy --env preview",
+    "preview": "pnpm run build && wrangler dev",
     "types": "wrangler types",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:frontend": "pnpm --filter frontend test",
+    "type-check": "pnpm --filter frontend exec tsc --noEmit",
     "backtest": "tsx scripts/backtest-idle-alert.ts"
   },
   "keywords": [
@@ -29,6 +36,7 @@
     "@vitest/coverage-v8": "^3.2.4",
     "tsx": "^4.20.6",
     "typescript": "^5.7.2",
+    "concurrently": "^9.0.1",
     "vitest": "^3.2.4",
     "wrangler": "^4.42.2"
   }
