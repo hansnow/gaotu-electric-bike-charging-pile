@@ -210,23 +210,43 @@ export async function runIdleAlertFlow(
         });
       }
 
-      // 如果是窗口开始时间，发送汇总后直接返回，不发送单条提醒
-      if (isWindowStart) {
-        console.log('[IDLE_ALERT] 窗口开始时间，跳过单条提醒，流程结束');
-        return {
-          success: true,
-          executedAt,
-          inTimeWindow: true,
-          isWorkday: true,
-          idleSocketCount: socketCount,
-          sentAlertCount: 0,
-          successAlertCount: 0,
-          failedAlertCount: 0,
-        };
-      }
+      // 窗口开始或结束时间，发送汇总后直接返回，不发送单条提醒
+      const windowType = isWindowStart ? '开始' : '结束';
+      console.log(`[IDLE_ALERT] 窗口${windowType}时间，跳过单条提醒，流程结束`);
+      return {
+        success: true,
+        executedAt,
+        inTimeWindow: true,
+        isWorkday: true,
+        idleSocketCount: socketCount,
+        sentAlertCount: 0,
+        successAlertCount: 0,
+        failedAlertCount: 0,
+      };
+    }
 
-      // 如果是窗口结束时间，发送汇总后继续执行单条提醒逻辑
-      console.log('[IDLE_ALERT] 窗口结束时间，汇总消息已发送，继续执行单条提醒逻辑');
+    // 4.5. 检查是否在窗口边界冷静期内
+    // 如果在窗口开始/结束附近（±3分钟），跳过单条提醒，避免与汇总消息冲突
+    if (
+      isNearWindowBoundary(
+        bjTime.timeHHmm,
+        config.time_range_start,
+        config.time_range_end
+      )
+    ) {
+      console.log(
+        '[IDLE_ALERT] 当前时间在窗口边界冷静期内，跳过单条提醒，流程结束'
+      );
+      return {
+        success: true,
+        executedAt,
+        inTimeWindow: true,
+        isWorkday: true,
+        idleSocketCount: 0,
+        sentAlertCount: 0,
+        successAlertCount: 0,
+        failedAlertCount: 0,
+      };
     }
 
     // 5. 检测空闲插座
@@ -535,7 +555,7 @@ function timeToMinutes(timeHHmm: string): number {
  * - 08:01 → true（在 08:00+1 范围内）
  * - 08:02 → false
  *
- * 用于判断是否是窗口开始/结束的精确时间点
+ * 用于判断是否是窗口开始/结束的精确时间点，避免重复发送汇总消息
  */
 function isExactTime(
   currentHHmm: string,
@@ -555,4 +575,51 @@ function isExactTime(
   }
 
   return diff <= toleranceMinutes;
+}
+
+/**
+ * 判断当前时间是否在窗口边界附近（冷静期）
+ *
+ * @param currentHHmm 当前时间 HH:mm
+ * @param windowStart 窗口开始时间 HH:mm
+ * @param windowEnd 窗口结束时间 HH:mm
+ * @param cooldownMinutes 冷静期分钟数（默认 3 分钟）
+ * @returns true=在冷静期内，false=不在冷静期内
+ *
+ * @remarks
+ * 用于在窗口开始/结束附近跳过单条提醒，避免与汇总消息冲突。
+ * 例如：窗口 08:00-17:00，冷静期 3 分钟
+ * - 08:02 → true（距离窗口开始 2 分钟）→ 跳过单条提醒
+ * - 08:04 → false（距离窗口开始 4 分钟）→ 正常发送单条提醒
+ * - 17:02 → true（距离窗口结束 2 分钟）→ 跳过单条提醒
+ */
+function isNearWindowBoundary(
+  currentHHmm: string,
+  windowStart: string,
+  windowEnd: string,
+  cooldownMinutes: number = 3
+): boolean {
+  const current = timeToMinutes(currentHHmm);
+  const start = timeToMinutes(windowStart);
+  const end = timeToMinutes(windowEnd);
+
+  // 检查是否接近窗口开始时间
+  let diffFromStart = Math.abs(current - start);
+  if (diffFromStart > 720) {
+    diffFromStart = 1440 - diffFromStart;
+  }
+  if (diffFromStart <= cooldownMinutes) {
+    return true;
+  }
+
+  // 检查是否接近窗口结束时间
+  let diffFromEnd = Math.abs(current - end);
+  if (diffFromEnd > 720) {
+    diffFromEnd = 1440 - diffFromEnd;
+  }
+  if (diffFromEnd <= cooldownMinutes) {
+    return true;
+  }
+
+  return false;
 }

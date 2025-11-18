@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2025-11-18
+
+### Fixed
+- **空闲提醒窗口汇总消息优化**：解决窗口时间附近的消息重复和冲突问题
+  - 修复窗口结束时同时发送汇总消息和单条消息的问题
+  - 修复容差过大导致汇总消息重复发送的问题（08:00 和 08:02 各发送一次）
+  - 新增窗口边界冷静期机制（±3分钟），避免汇总消息和单条消息冲突
+
+### Changed
+- **窗口汇总策略调整**：
+  - 窗口开始时（如 08:00）：只发送汇总消息，不发送单条消息 ✅
+  - 窗口结束时（如 17:00）：只发送汇总消息，不发送单条消息 ✅（**新增**）
+  - 窗口内其他时间：正常发送单条空闲提醒 ✅
+
+- **双重去重机制**：
+  - **汇总消息去重**：时间容差保持 ±1 分钟，确保汇总消息只发送一次
+  - **单条消息抑制**：窗口边界冷静期 ±3 分钟，在窗口开始/结束附近跳过单条提醒
+
+### Technical Details
+- 修改文件：
+  - `idle-alert/service.ts`:
+    - 新增 `isNearWindowBoundary()` 函数：判断是否在窗口边界冷静期内
+    - 修改窗口结束时的逻辑：发送汇总后直接返回，不再继续发送单条消息
+    - 在单条消息发送前增加冷静期检查，避免与汇总消息冲突
+  - `docs/idle-alert-window-summary.md`:
+    - 更新去重策略说明（双重机制）
+    - 更新执行流程图
+    - 更新测试场景和验证方法
+
+### 执行时间线示例
+```
+08:00 → 发送汇总消息："充电桩小助手开始上班啦！" ✅
+08:02 → 跳过（在冷静期内）✅
+08:04 → 恢复正常单条提醒 ✅
+10:00 → 正常单条提醒 ✅
+17:00 → 发送汇总消息："充电桩小助手下班啦！" ✅
+17:02 → 跳过（在冷静期内）✅
+```
+
+---
+
 ## [1.3.0] - 2025-11-17
 
 ### Added
@@ -140,6 +181,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 空闲提醒配置管理
   - 统计数据展示
 
+[1.3.1]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.0.0...v1.1.0
