@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2025-11-18
+
+### Added
+- **前端版本号显示**：在前端页面底部添加版本号显示
+  - 以浅灰色小字显示在页面底部
+  - 不显眼的设计，不影响用户体验
+  - 版本号会随 package.json 同步更新
+
+### Technical Details
+- 修改文件：
+  - `public/index.html`:
+    - 新增 `.version` 样式类（11px 小字，浅灰色）
+    - 在页面底部添加版本号显示元素
+
+---
+
 ## [1.3.1] - 2025-11-18
 
 ### Fixed
@@ -181,6 +197,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 空闲提醒配置管理
   - 统计数据展示
 
+[1.3.2]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.1.0...v1.2.0
