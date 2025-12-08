@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2025-12-08
+
+### Fixed
+- **空闲提醒去重逻辑缺陷修复**：修复当 Webhook 失败但飞书成功时，导致重复发送飞书提醒的问题
+  - 问题原因：ntfy.sh 免费配额用尽导致 Webhook 持续失败（HTTP 429），去重逻辑仅检查 Webhook 成功状态
+  - 修复方案：去重检查改为「Webhook 或飞书任一成功即视为提醒成功」
+  - 影响范围：避免在 Webhook 服务不可用时产生大量重复飞书消息
+
+### Technical Details
+- 修改文件：
+  - `idle-alert/idle-detector.ts`:
+    - 修改去重 SQL 查询条件：`AND success = 1` → `AND (success = 1 OR lark_success = 1)`
+    - 更新去重逻辑注释说明
+
+---
+
 ## [1.3.2] - 2025-11-18
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "gaotu-electric-bike-charging-pile",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Electric bike charging pile API service built with Cloudflare Workers",
   "main": "worker.ts",
   "type": "module",

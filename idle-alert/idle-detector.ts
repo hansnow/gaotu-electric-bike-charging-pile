@@ -272,6 +272,7 @@ export async function detectIdleSockets(
     // 7. 去重检查：过滤掉本次空闲周期已成功提醒过的插座
     // 注意：基于 idle_start_time 去重，而不是 log_date
     // 这样如果插座中间被占用过，再次空闲时会重新提醒
+    // 修复：只要 Webhook 或飞书任一成功，就认为提醒成功，避免重复发送
     const dedupedSockets: IdleSocket[] = [];
 
     for (const socket of filteredSockets) {
@@ -280,7 +281,8 @@ export async function detectIdleSockets(
       const logResult = await db
         .prepare(
           `SELECT COUNT(*) as count FROM idle_alert_logs
-           WHERE station_id = ? AND socket_id = ? AND idle_start_time = ? AND success = 1`
+           WHERE station_id = ? AND socket_id = ? AND idle_start_time = ?
+             AND (success = 1 OR lark_success = 1)`
         )
         .bind(socket.stationId, socket.socketId, idleStartTimeSec)
         .first<{ count: number }>();
