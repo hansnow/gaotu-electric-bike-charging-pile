@@ -155,6 +155,26 @@ export async function runIdleAlertFlow(
         `[IDLE_ALERT] 检测到时间窗口${isWindowStart ? '开始' : '结束'}时间，准备发送汇总消息`
       );
 
+      const messageType = isWindowStart ? 'window_start' : 'window_end';
+
+      // 【去重检查】检查最近5分钟内是否已发送过相同类型的消息
+      const hasDuplicate = await hasRecentSummaryMessage(env.DB, messageType, 5);
+      if (hasDuplicate) {
+        console.log(
+          `[IDLE_ALERT] 跳过重复发送：最近5分钟内已发送过 ${messageType} 消息`
+        );
+        return {
+          success: true,
+          executedAt,
+          inTimeWindow: true,
+          isWorkday: true,
+          idleSocketCount: 0,
+          sentAlertCount: 0,
+          successAlertCount: 0,
+          failedAlertCount: 0,
+        };
+      }
+
       // 获取所有空闲插座（不考虑阈值）
       const allAvailableSockets = await getAllAvailableSockets(env.DB, config, now);
       const socketCount = allAvailableSockets.length;
@@ -176,11 +196,10 @@ export async function runIdleAlertFlow(
         chatId: config.lark_chat_id || undefined,
       };
 
-      const messageType = isWindowStart ? 'window_start' : 'window_end';
-
       // 发送飞书汇总消息
+      let larkResult: LarkSendResult | undefined;
       if (larkConfig.enabled) {
-        await sendSummaryToLark(larkConfig, socketCount, messageType);
+        larkResult = await sendSummaryToLark(larkConfig, socketCount, messageType);
       }
 
       // 发送 Webhook 汇总消息
@@ -209,6 +228,16 @@ export async function runIdleAlertFlow(
           retryIntervalSeconds: config.retry_interval_seconds,
         });
       }
+
+      // 【记录发送历史】无论成功失败都记录，用于去重
+      await recordSummaryMessage(
+        env.DB,
+        messageType,
+        socketCount,
+        bjTime.timeHHmm,
+        larkResult,
+        webhookUrls.length > 0
+      );
 
       // 窗口开始或结束时间，发送汇总后直接返回，不发送单条提醒
       const windowType = isWindowStart ? '开始' : '结束';
@@ -622,4 +651,129 @@ function isNearWindowBoundary(
   }
 
   return false;
+}
+
+/**
+ * 检查最近是否已发送过相同类型的汇总消息
+ *
+ * @param db 数据库实例
+ * @param messageType 消息类型（'window_start' 或 'window_end'）
+ * @param withinMinutes 时间范围（分钟），默认5分钟
+ * @returns true=已发送过，false=未发送过
+ *
+ * @remarks
+ * 用于防止汇总消息在短时间内重复发送
+ * 检查逻辑：查询最近N分钟内是否有成功发送的相同类型消息
+ */
+async function hasRecentSummaryMessage(
+  db: D1Database,
+  messageType: 'window_start' | 'window_end',
+  withinMinutes: number = 5
+): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
+  const thresholdTime = now - withinMinutes * 60;
+
+  try {
+    const result = await db
+      .prepare(
+        `
+        SELECT id, sent_at, sent_time_str
+        FROM idle_alert_summary_logs
+        WHERE message_type = ?
+          AND sent_at >= ?
+          AND (lark_success = 1 OR webhook_success = 1)
+        ORDER BY sent_at DESC
+        LIMIT 1
+      `
+      )
+      .bind(messageType, thresholdTime)
+      .first();
+
+    if (result) {
+      console.log(
+        `[IDLE_ALERT] 检测到重复：最近${withinMinutes}分钟内已发送过 ${messageType} 消息`,
+        `(上次发送时间: ${result.sent_time_str}, ID: ${result.id})`
+      );
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error('[IDLE_ALERT] 检查汇总消息去重失败:', error);
+    // 出错时保守处理，允许发送
+    return false;
+  }
+}
+
+/**
+ * 记录汇总消息发送历史
+ *
+ * @param db 数据库实例
+ * @param messageType 消息类型
+ * @param socketCount 空闲插座数量
+ * @param sentTimeStr 发送时间字符串（HH:mm）
+ * @param larkResult 飞书发送结果（可选）
+ * @param webhookEnabled Webhook 是否启用
+ *
+ * @remarks
+ * 记录每次汇总消息的发送情况，用于去重和审计
+ */
+async function recordSummaryMessage(
+  db: D1Database,
+  messageType: 'window_start' | 'window_end',
+  socketCount: number,
+  sentTimeStr: string,
+  larkResult?: LarkSendResult,
+  webhookEnabled: boolean = false
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const id = crypto.randomUUID();
+
+  try {
+    await db
+      .prepare(
+        `
+        INSERT INTO idle_alert_summary_logs (
+          id,
+          message_type,
+          socket_count,
+          sent_at,
+          sent_time_str,
+          lark_enabled,
+          lark_success,
+          lark_message_id,
+          lark_error_message,
+          lark_response_time_ms,
+          webhook_enabled,
+          webhook_success,
+          webhook_error_message,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      )
+      .bind(
+        id,
+        messageType,
+        socketCount,
+        now,
+        sentTimeStr,
+        larkResult ? 1 : 0,
+        larkResult?.success ? 1 : 0,
+        larkResult?.messageId || null,
+        larkResult?.error || null,
+        larkResult?.elapsedMs || null,
+        webhookEnabled ? 1 : 0,
+        null, // webhook_success - 暂时不跟踪
+        null, // webhook_error_message
+        now
+      )
+      .run();
+
+    console.log(
+      `[IDLE_ALERT] 汇总消息发送记录已保存 (ID: ${id}, Type: ${messageType}, Time: ${sentTimeStr})`
+    );
+  } catch (error) {
+    console.error('[IDLE_ALERT] 保存汇总消息记录失败:', error);
+    // 记录失败不影响主流程
+  }
 }

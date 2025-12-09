@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2025-12-09
+
+### Fixed
+- **汇总消息重复发送问题修复**：解决上班/下班汇总消息在短时间内重复发送 2-3 次的问题
+  - 问题原因：`isExactTime()` 函数使用 ±1 分钟容差，导致在 08:59、09:00、09:01 三个时间点都可能触发发送，且没有去重机制
+  - 修复方案：实现基于数据库的去重机制，检查最近 5 分钟内是否已发送过相同类型的消息
+  - 实现方式：
+    - 新增 `idle_alert_summary_logs` 表记录所有汇总消息发送历史
+    - 新增 `hasRecentSummaryMessage()` 函数在发送前检查去重
+    - 新增 `recordSummaryMessage()` 函数在发送后记录历史
+  - 优势：数据库持久化、容错性好、支持多实例并发、完整审计记录
+
+### Added
+- **汇总消息去重功能文档**：新增 `docs/summary-message-dedup.md` 详细设计文档
+  - 包含问题背景分析、解决方案设计、技术实现细节
+  - 提供工作流程示例、监控日志、测试验证方法
+  - 包含常见问题 FAQ 和相关文件索引
+
+### Technical Details
+- 新增文件：
+  - `migrations/0004_summary-message-dedup.sql`: 创建汇总消息日志表和索引
+  - `docs/summary-message-dedup.md`: 功能设计文档（约 500+ 行）
+- 修改文件：
+  - `idle-alert/service.ts`:
+    - 新增 `hasRecentSummaryMessage()` 函数（第 639-677 行）：去重检查
+    - 新增 `recordSummaryMessage()` 函数（第 692-750 行）：记录发送历史
+    - 修改 `runIdleAlertFlow()` 函数（第 160-240 行）：集成去重逻辑
+  - `package.json`: 版本号更新至 1.3.4
+
+### Database Changes
+- 新增表：`idle_alert_summary_logs`
+  - 记录字段：消息类型、插座数量、发送时间、飞书结果、Webhook 状态
+  - 索引：`idx_summary_logs_type_time`（消息类型 + 发送时间）
+  - 索引：`idx_summary_logs_sent_at`（发送时间，用于清理旧数据）
+
+---
+
 ## [1.3.3] - 2025-12-08
 
 ### Fixed
@@ -213,6 +250,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 空闲提醒配置管理
   - 统计数据展示
 
+[1.3.4]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.3...v1.3.4
+[1.3.3]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.2...v1.3.3
 [1.3.2]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.2.0...v1.3.0
