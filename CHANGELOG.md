@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.5] - 2025-12-15
+
+### Fixed
+- **窗口开始时重复提醒问题修复**：解决在通知窗口开放时发送汇总消息后，仍然对所有空闲插座发送单独提醒的问题
+  - 问题场景：09:00 窗口开始发送"🔔充电桩小助手开始上班啦！当前还剩 19 个空闲充电桩"，但 09:04 再次为这 19 个插座发送单独的"已经空闲X分钟"提醒
+  - 问题根因：窗口开始发送汇总消息后，未在 `idle_alert_logs` 表中为空闲插座创建"已提醒"标记，导致去重检查失效
+  - 修复方案：在窗口开始发送汇总消息后，为所有当前空闲的插座创建已提醒标记
+  - 工作机制：
+    - 窗口开始时发送汇总消息，同时为所有空闲插座创建 `idle_alert_logs` 记录
+    - 后续检测到这些插座时，因为找到已提醒记录而跳过发送
+    - 只有插座从"空闲"→"占用"→"空闲"后，`idle_start_time` 改变，才会触发新的提醒
+  - 影响范围：仅影响窗口开始时间，窗口结束时间不受影响
+
+### Added
+- **窗口开始标记功能**：新增 `markSocketsAsNotified()` 函数，为窗口开始时的空闲插座批量创建已提醒标记
+
+### Technical Details
+- 修改文件：
+  - `idle-alert/service.ts`:
+    - 新增 `markSocketsAsNotified()` 函数（第 503-564 行）：批量创建已提醒标记
+    - 修改 `runIdleAlertFlow()` 函数（第 242-253 行）：在窗口开始时调用标记函数
+  - `package.json`: 版本号更新至 1.3.5
+- 标记特征：
+  - 使用特殊 `webhook_url` 标识：`summary_window_start`
+  - 设置 `success = 1` 和 `lark_success = 1`，表示已成功提醒
+  - 基于 `idle_start_time` 去重，确保插座状态变化后能重新提醒
+
+---
+
 ## [1.3.4] - 2025-12-09
 
 ### Fixed

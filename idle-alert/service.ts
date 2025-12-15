@@ -239,6 +239,19 @@ export async function runIdleAlertFlow(
         webhookUrls.length > 0
       );
 
+      // 【窗口开始时】为所有空闲插座创建"已提醒"标记，避免后续再次单独提醒
+      if (isWindowStart) {
+        await markSocketsAsNotified(
+          env.DB,
+          allAvailableSockets,
+          bjTime,
+          messageType
+        );
+        console.log(
+          `[IDLE_ALERT] 已为窗口开始时的 ${allAvailableSockets.length} 个空闲插座创建已提醒标记`
+        );
+      }
+
       // 窗口开始或结束时间，发送汇总后直接返回，不发送单条提醒
       const windowType = isWindowStart ? '开始' : '结束';
       console.log(`[IDLE_ALERT] 窗口${windowType}时间，跳过单条提醒，流程结束`);
@@ -483,6 +496,82 @@ async function saveLogs(
     console.log(`[IDLE_ALERT] 保存 ${results.length} 条提醒日志成功`);
   } catch (error) {
     console.error('[IDLE_ALERT] 保存提醒日志失败:', error);
+    // 不抛出异常，避免影响主流程
+  }
+}
+
+/**
+ * 在窗口开始时为所有空闲插座创建"已提醒"标记
+ *
+ * @param db 数据库实例
+ * @param sockets 需要标记的空闲插座列表
+ * @param bjTime 北京时间信息
+ * @param messageType 消息类型（window_start 或 window_end）
+ *
+ * @remarks
+ * 这个函数在窗口开始发送汇总消息后调用，为所有已经空闲的插座创建标记
+ * 避免后续时间点再次为这些插座发送单独提醒
+ * 只有当插座从"空闲"变成"占用"再变回"空闲"时，才会触发新的提醒
+ */
+async function markSocketsAsNotified(
+  db: D1Database,
+  sockets: IdleSocket[],
+  bjTime: BeijingTime,
+  messageType: 'window_start' | 'window_end'
+): Promise<void> {
+  if (sockets.length === 0) {
+    return;
+  }
+
+  try {
+    const triggeredAt = Math.floor(Date.now() / 1000);
+
+    // 为每个插座创建一条"已通过汇总消息提醒"的日志记录
+    const statements = sockets.map((socket) => {
+      const logId = `${socket.stationId}-${socket.socketId}-summary-${messageType}-${triggeredAt}`;
+
+      return db
+        .prepare(
+          `INSERT INTO idle_alert_logs
+          (id, station_id, station_name, socket_id, idle_minutes, idle_start_time,
+           webhook_url, request_payload, response_status, response_body, response_time_ms,
+           success, error_message, retry_count, triggered_at, sent_at, log_date,
+           lark_message_id, lark_success, lark_error_message, lark_response_time_ms)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          logId,
+          socket.stationId,
+          socket.stationName,
+          socket.socketId,
+          socket.idleMinutes,
+          Math.floor(socket.idleStartTime / 1000),
+          `summary_${messageType}`, // 使用特殊标识表示这是汇总消息的标记
+          '',
+          null,
+          null,
+          null,
+          1, // success = 1 表示已成功提醒（通过汇总消息）
+          null,
+          0,
+          triggeredAt,
+          triggeredAt,
+          bjTime.dateString,
+          null,
+          1, // lark_success = 1 表示已成功提醒（通过汇总消息）
+          null,
+          null
+        );
+    });
+
+    // 批量写入
+    await db.batch(statements);
+
+    console.log(
+      `[IDLE_ALERT] 为 ${sockets.length} 个插座创建汇总消息提醒标记成功`
+    );
+  } catch (error) {
+    console.error('[IDLE_ALERT] 创建汇总消息提醒标记失败:', error);
     // 不抛出异常，避免影响主流程
   }
 }
