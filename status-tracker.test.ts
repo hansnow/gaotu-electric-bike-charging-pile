@@ -228,11 +228,11 @@ describe('detectStatusChanges', () => {
 });
 
 describe('getTimeString', () => {
-  it('应该返回格式化的时间字符串', () => {
+  it('应该返回转换为北京时间的时间字符串', () => {
     const date = new Date('2025-10-11T15:30:45.123Z');
     const result = getTimeString(date);
-    
-    expect(result).toBe('2025-10-11 15:30:45');
+
+    expect(result).toBe('2025-10-11 23:30:45');
   });
 
   it('当不传参数时应该返回当前时间', () => {
@@ -506,11 +506,13 @@ describe('KV 存储函数', () => {
     });
 
     it('当JSON解析失败时应该返回空数组', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       mockKV.set('events:2025-10-11', { value: 'invalid json' });
 
       const result = await getEvents(mockEnv, '2025-10-11');
 
       expect(result).toHaveLength(0);
+      errorSpy.mockRestore();
     });
   });
 
@@ -543,11 +545,13 @@ describe('KV 存储函数', () => {
     });
 
     it('当JSON解析失败时应该返回null', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       mockKV.set('latest:1', { value: 'invalid json' });
 
       const result = await getLatestStatus(mockEnv, 1);
 
       expect(result).toBeNull();
+      errorSpy.mockRestore();
     });
 
     it('应该使用正确的键格式', async () => {
@@ -617,4 +621,3 @@ describe('边界情况测试', () => {
     expect(changes[0].newStatus).toBe('occupied');
   });
 });
-

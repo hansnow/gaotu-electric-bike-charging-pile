@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-01-03
+
+### Added
+- **单元测试补充**：新增节假日解析/时区/缓存判断的测试，以及 `getDeviceDetail` 的请求参数与响应处理测试
+
+### Changed
+- **测试对齐北京时间逻辑**：`getTimeString` 测试使用北京时间期望值，并在预期 JSON 解析失败场景中静默错误日志
+- **节假日解析可测试化**：导出 `parseICS`、`formatDate`、`isWeekend` 以便单元测试复用
+
+### Removed
+- **临时测试脚本清理**：移除 `scripts/test-2026-newyear.ts`、`scripts/test-parseics-fix.ts`、`scripts/test-holiday-fix.ts`、`test-local.ts`
+
+### Technical Details
+- 修改文件：
+  - `idle-alert/holiday-checker.ts`: 导出 `parseICS`、`formatDate`、`isWeekend`
+  - `idle-alert/holiday-checker.test.ts`: 新增节假日解析与时区/缓存测试
+  - `test-local.test.ts`: 新增 `getDeviceDetail` 单元测试（mock fetch）
+  - `status-tracker.test.ts`: 更新北京时间期望值并静默预期错误日志
+  - `package.json`: 版本号更新至 1.4.1
+  - `public/index.html`: 前端版本号更新至 v1.4.1
+
 ## [1.4.0] - 2026-01-03
 
 ### Fixed
@@ -333,6 +354,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 空闲提醒配置管理
   - 统计数据展示
 
+[1.4.1]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.5...v1.4.0
 [1.3.5]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.4...v1.3.5
 [1.3.4]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.3...v1.3.4

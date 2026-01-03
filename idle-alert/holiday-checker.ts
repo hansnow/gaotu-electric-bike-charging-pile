@@ -200,7 +200,7 @@ export function createHolidayChecker(
  * 2. 时间段事件（DTSTART + DTEND），会展开为多个日期
  * 3. 区分节假日（休）和调休补班日（班）
  */
-function parseICS(
+export function parseICS(
   icsText: string
 ): { date: string; name: string; isHoliday: boolean }[] {
   const holidays: { date: string; name: string; isHoliday: boolean }[] = [];
@@ -335,7 +335,7 @@ function generateDateRange(startDate: Date, days: number): string[] {
  * 为了正确判断北京时间的日期,需要先转换为北京时间(UTC+8)再格式化。
  * 这样可以确保节假日判断使用的是北京时间的日期,而不是 UTC 日期。
  */
-function formatDate(date: Date): string {
+export function formatDate(date: Date): string {
   // 转换为北京时间 (UTC+8)
   const bjOffset = 8 * 60 * 60 * 1000; // 8小时
   const bjDate = new Date(date.getTime() + bjOffset);
@@ -356,7 +356,7 @@ function formatDate(date: Date): string {
  * 在 Cloudflare Worker 中，Date 对象默认使用 UTC 时区。
  * 为了正确判断北京时间的星期几，需要先转换为北京时间(UTC+8)。
  */
-function isWeekend(date: Date): boolean {
+export function isWeekend(date: Date): boolean {
   // 转换为北京时间 (UTC+8)
   const bjOffset = 8 * 60 * 60 * 1000; // 8小时
   const bjDate = new Date(date.getTime() + bjOffset);
