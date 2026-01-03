@@ -130,7 +130,23 @@ export function createHolidayChecker(
 
       // 生成未来 N 天的缓存数据
       const cacheDates = generateDateRange(new Date(), days);
-      const holidaySet = new Set(holidays.map((h) => h.date));
+
+      // 创建节假日映射表
+      // 注意：如果同一天有多个事件，调休补班日（班）优先级高于节假日（休）
+      const holidayMap = new Map<
+        string,
+        { isHoliday: boolean; name: string }
+      >();
+      for (const holiday of holidays) {
+        const existing = holidayMap.get(holiday.date);
+        // 如果已存在且已存在的是节假日，新的是调休补班日，则覆盖
+        if (!existing || (!holiday.isHoliday && existing.isHoliday)) {
+          holidayMap.set(holiday.date, {
+            isHoliday: holiday.isHoliday,
+            name: holiday.name,
+          });
+        }
+      }
 
       // 使用批处理写入数据库（每批 100 条）
       const batchSize = 100;
@@ -141,8 +157,13 @@ export function createHolidayChecker(
 
         // 使用事务批量写入
         const statements = batch.map((dateStr) => {
-          const holidayInfo = holidays.find((h) => h.date === dateStr);
-          const isHoliday = holidaySet.has(dateStr) ? 1 : 0;
+          const holidayInfo = holidayMap.get(dateStr);
+          // 如果在 holidayMap 中：
+          //   - isHoliday=true → is_holiday=1（节假日）
+          //   - isHoliday=false → is_holiday=0（调休补班日，需要上班）
+          // 如果不在 holidayMap 中：
+          //   - is_holiday=0（普通工作日）
+          const isHoliday = holidayInfo?.isHoliday ? 1 : 0;
 
           return db
             .prepare(
@@ -172,15 +193,24 @@ export function createHolidayChecker(
  *
  * @param icsText ICS 文件内容
  * @returns 节假日列表
+ *
+ * @remarks
+ * 支持以下特性：
+ * 1. 单日事件（只有 DTSTART）
+ * 2. 时间段事件（DTSTART + DTEND），会展开为多个日期
+ * 3. 区分节假日（休）和调休补班日（班）
  */
-function parseICS(icsText: string): { date: string; name: string }[] {
-  const holidays: { date: string; name: string }[] = [];
+function parseICS(
+  icsText: string
+): { date: string; name: string; isHoliday: boolean }[] {
+  const holidays: { date: string; name: string; isHoliday: boolean }[] = [];
 
   // 按行分割
   const lines = icsText.split(/\r?\n/);
 
   let inEvent = false;
-  let currentDate = '';
+  let currentStartDate = '';
+  let currentEndDate = '';
   let currentSummary = '';
 
   for (const line of lines) {
@@ -189,18 +219,42 @@ function parseICS(icsText: string): { date: string; name: string }[] {
     // 检测事件开始
     if (trimmed === 'BEGIN:VEVENT') {
       inEvent = true;
-      currentDate = '';
+      currentStartDate = '';
+      currentEndDate = '';
       currentSummary = '';
       continue;
     }
 
     // 检测事件结束
     if (trimmed === 'END:VEVENT') {
-      if (currentDate && currentSummary) {
-        holidays.push({
-          date: currentDate,
-          name: currentSummary,
-        });
+      if (currentStartDate && currentSummary) {
+        // 判断是节假日（休）还是调休补班日（班）
+        const isHoliday = currentSummary.includes('（休）') || !currentSummary.includes('（班）');
+
+        // 如果有结束日期，展开为多个日期
+        if (currentEndDate) {
+          const startDate = new Date(currentStartDate + 'T00:00:00Z');
+          const endDate = new Date(currentEndDate + 'T00:00:00Z');
+
+          // 注意：ICS 的 DTEND 是 exclusive 的，不包含结束日期当天
+          let currentDate = new Date(startDate);
+          while (currentDate < endDate) {
+            const dateStr = formatDateStr(currentDate);
+            holidays.push({
+              date: dateStr,
+              name: currentSummary,
+              isHoliday: isHoliday,
+            });
+            currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+          }
+        } else {
+          // 单日事件
+          holidays.push({
+            date: currentStartDate,
+            name: currentSummary,
+            isHoliday: isHoliday,
+          });
+        }
       }
       inEvent = false;
       continue;
@@ -208,22 +262,47 @@ function parseICS(icsText: string): { date: string; name: string }[] {
 
     if (!inEvent) continue;
 
-    // 提取日期（DTSTART;VALUE=DATE:20250101）
+    // 提取开始日期（DTSTART;VALUE=DATE:20260101）
     if (trimmed.startsWith('DTSTART')) {
       const match = trimmed.match(/DTSTART[^:]*:(\d{8})/);
       if (match) {
-        const dateStr = match[1]; // 20250101
-        currentDate = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
+        const dateStr = match[1]; // 20260101
+        currentStartDate = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
       }
     }
 
-    // 提取摘要（SUMMARY:元旦）
-    if (trimmed.startsWith('SUMMARY:')) {
-      currentSummary = trimmed.replace('SUMMARY:', '');
+    // 提取结束日期（DTEND;VALUE=DATE:20260104）
+    if (trimmed.startsWith('DTEND')) {
+      const match = trimmed.match(/DTEND[^:]*:(\d{8})/);
+      if (match) {
+        const dateStr = match[1]; // 20260104
+        currentEndDate = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
+      }
+    }
+
+    // 提取摘要（SUMMARY:元旦（休）或 SUMMARY;LANGUAGE=zh_CN:元旦（班））
+    if (trimmed.startsWith('SUMMARY')) {
+      const match = trimmed.match(/SUMMARY[^:]*:(.+)/);
+      if (match) {
+        currentSummary = match[1];
+      }
     }
   }
 
   return holidays;
+}
+
+/**
+ * 将 Date 对象格式化为 YYYY-MM-DD（UTC时间）
+ *
+ * @param date Date 对象
+ * @returns YYYY-MM-DD 格式的字符串
+ */
+function formatDateStr(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -246,25 +325,42 @@ function generateDateRange(startDate: Date, days: number): string[] {
 }
 
 /**
- * 格式化日期为 YYYY-MM-DD
+ * 格式化日期为 YYYY-MM-DD(北京时间)
  *
- * @param date 日期对象
- * @returns YYYY-MM-DD 格式的字符串
+ * @param date 日期对象(UTC时间)
+ * @returns YYYY-MM-DD 格式的字符串(北京时间)
+ *
+ * @remarks
+ * 在 Cloudflare Worker 中,Date 对象默认使用 UTC 时区。
+ * 为了正确判断北京时间的日期,需要先转换为北京时间(UTC+8)再格式化。
+ * 这样可以确保节假日判断使用的是北京时间的日期,而不是 UTC 日期。
  */
 function formatDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  // 转换为北京时间 (UTC+8)
+  const bjOffset = 8 * 60 * 60 * 1000; // 8小时
+  const bjDate = new Date(date.getTime() + bjOffset);
+
+  const year = bjDate.getUTCFullYear();
+  const month = String(bjDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(bjDate.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
 /**
- * 判断是否为周末
+ * 判断是否为周末(北京时间)
  *
- * @param date 日期对象
+ * @param date 日期对象(UTC时间)
  * @returns true=周末，false=工作日
+ *
+ * @remarks
+ * 在 Cloudflare Worker 中，Date 对象默认使用 UTC 时区。
+ * 为了正确判断北京时间的星期几，需要先转换为北京时间(UTC+8)。
  */
 function isWeekend(date: Date): boolean {
-  const day = date.getDay();
+  // 转换为北京时间 (UTC+8)
+  const bjOffset = 8 * 60 * 60 * 1000; // 8小时
+  const bjDate = new Date(date.getTime() + bjOffset);
+
+  const day = bjDate.getUTCDay();
   return day === 0 || day === 6; // 周日=0，周六=6
 }

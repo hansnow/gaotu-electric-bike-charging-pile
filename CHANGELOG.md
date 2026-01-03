@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-01-03
+
+### Fixed
+- **节假日判断时区问题修复**：修复了空闲提醒在节假日仍然发送的时区问题
+  - 问题场景：2026-01-01 和 2026-01-02 虽然是元旦假期，但系统在北京时间早上 00:00-07:59 仍然发送了提醒
+  - 问题根因：`formatDate()` 和 `isWeekend()` 函数使用 UTC 时区而非北京时间，导致日期判断错误
+  - 修复方案：
+    - `formatDate()` 现在将 UTC 时间转换为北京时间（UTC+8）后再格式化日期
+    - `isWeekend()` 现在将 UTC 时间转换为北京时间（UTC+8）后再判断星期几
+  - 影响范围：所有节假日和周末的判断逻辑
+
+- **节假日解析时间段支持**：修复了 ICS 文件解析只识别单日节假日的问题
+  - 问题场景：2026 年元旦放假 3 天（1月1-3日），但系统只识别了 1 月 1 日，导致 1 月 2 日仍然发送提醒
+  - 问题根因：`parseICS()` 函数只提取 `DTSTART`，完全忽略 `DTEND`，无法处理多天假期
+  - 修复方案：
+    - `parseICS()` 现在支持 `DTSTART` + `DTEND` 时间段，自动展开为多个日期
+    - 例如：`DTSTART=20260101, DTEND=20260104` 会展开为 2026-01-01, 01-02, 01-03 三个日期
+  - 影响范围：所有多天节假日的识别
+
+- **调休补班日识别**：新增对调休补班日的正确识别和处理
+  - 问题场景：2026-01-04 是周日但需要调休补班，系统之前会将其识别为周末不发送提醒
+  - 修复方案：
+    - `parseICS()` 通过 SUMMARY 字段区分"元旦（休）"和"元旦（班）"
+    - 节假日（休）→ `is_holiday=1` → 不发送提醒
+    - 调休补班日（班）→ `is_holiday=0` → 发送提醒
+  - 影响范围：所有调休补班日的处理
+
+### Changed
+- **节假日数据结构扩展**：`parseICS()` 返回值新增 `isHoliday` 字段
+  - `isHoliday=true`：节假日（休），不发送提醒
+  - `isHoliday=false`：调休补班日（班），需要发送提醒
+
+### Technical Details
+- 修改文件：
+  - `idle-alert/holiday-checker.ts`:
+    - 修改 `formatDate()` 函数（第 259-268 行）：使用北京时间而非 UTC 时间
+    - 修改 `isWeekend()` 函数（第 280-287 行）：使用北京时间而非 UTC 时间
+    - 重构 `parseICS()` 函数（第 182-293 行）：支持时间段展开和节假日类型识别
+    - 新增 `formatDateStr()` 辅助函数（第 277-282 行）：UTC 时间格式化
+    - 修改 `refresh()` 函数（第 134-175 行）：使用新的节假日映射逻辑
+  - `package.json`: 版本号更新至 1.4.0
+- 新增测试脚本：
+  - `scripts/test-holiday-fix.ts`: 时区修复验证测试
+  - `scripts/test-parseics-fix.ts`: parseICS 功能测试
+  - `scripts/test-2026-newyear.ts`: 2026 年元旦完整场景测试
+
+### 2026 年元旦测试验证
+- 2026-01-01 (周四)：元旦（休），is_holiday=1 → ✅ 不发送提醒
+- 2026-01-02 (周五)：元旦（休），is_holiday=1 → ✅ 不发送提醒
+- 2026-01-03 (周六)：元旦（休），is_holiday=1 → ✅ 不发送提醒
+- 2026-01-04 (周日)：元旦（班），is_holiday=0 → ✅ 发送提醒（调休补班）
+
+---
+
 ## [1.3.5] - 2025-12-15
 
 ### Fixed
@@ -279,6 +333,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 空闲提醒配置管理
   - 统计数据展示
 
+[1.4.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.5...v1.4.0
+[1.3.5]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.4...v1.3.5
 [1.3.4]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.3...v1.3.4
 [1.3.3]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.2...v1.3.3
 [1.3.2]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.1...v1.3.2
