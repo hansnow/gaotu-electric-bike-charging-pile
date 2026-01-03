@@ -19,6 +19,7 @@ description: 自动化版本发布流程，包括版本号升级、CHANGELOG 更
 ### 2. 更新版本号
 
 - 更新 `package.json` 中的 `version` 字段为指定版本号
+- 更新 `public/index.html` 中的前端版本号显示（搜索 `<div class="version">` 并更新为 `v{version}`）
 
 ### 3. 编写 CHANGELOG
 
