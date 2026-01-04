@@ -636,7 +636,7 @@ export default {
 
     // 执行空闲提醒流程（独立于状态检查，失败不影响主流程）
     try {
-      const alertResult = await runIdleAlertFlow(env, ctx);
+      const alertResult = await runIdleAlertFlow(env, ctx, scheduledTime);
       console.log('[IDLE_ALERT] 空闲提醒流程完成:', {
         成功: alertResult.success,
         在时间窗口内: alertResult.inTimeWindow,

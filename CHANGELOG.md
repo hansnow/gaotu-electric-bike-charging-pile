@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-01-04
+
+### Fixed
+- **下班汇总消息漏发**：定时任务触发延迟时，改用 `scheduledTime` 作为空闲提醒时间基准，避免错过 17:00 下班窗口
+
+### Technical Details
+- 修改文件：
+  - `worker.ts`: `scheduled()` 使用 `event.scheduledTime` 调用 `runIdleAlertFlow`
+  - `package.json`: 版本号更新至 1.4.2
+  - `public/index.html`: 前端版本号更新至 v1.4.2
+
 ## [1.4.1] - 2026-01-03
 
 ### Added
@@ -354,6 +365,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 空闲提醒配置管理
   - 统计数据展示
 
+[1.4.2]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.5...v1.4.0
 [1.3.5]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.4...v1.3.5
