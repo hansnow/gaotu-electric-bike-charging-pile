@@ -228,8 +228,16 @@ export function parseICS(
     // 检测事件结束
     if (trimmed === 'END:VEVENT') {
       if (currentStartDate && currentSummary) {
-        // 判断是节假日（休）还是调休补班日（班）
-        const isHoliday = currentSummary.includes('（休）') || !currentSummary.includes('（班）');
+        // 仅识别明确标注（休/班）的事件，避免节气等误判为节假日
+        const isRestDay = currentSummary.includes('（休）');
+        const isWorkday = currentSummary.includes('（班）');
+
+        if (!isRestDay && !isWorkday) {
+          inEvent = false;
+          continue;
+        }
+
+        const isHoliday = isRestDay;
 
         // 如果有结束日期，展开为多个日期
         if (currentEndDate) {

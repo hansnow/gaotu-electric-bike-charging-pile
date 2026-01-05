@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-01-05
+
+### Fixed
+- **节气误判为节假日**：仅在摘要包含“（休）/（班）”时才识别为节假日或补班日，避免节气导致工作日提醒被跳过
+
+### Technical Details
+- 修改文件：
+  - `idle-alert/holiday-checker.ts`: 仅解析标注（休/班）的节假日事件，忽略节气等无标注事件
+  - `package.json`: 版本号更新至 1.4.3
+  - `public/index.html`: 前端版本号更新至 v1.4.3
+
 ## [1.4.2] - 2026-01-04
 
 ### Fixed
@@ -365,6 +376,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 空闲提醒配置管理
   - 统计数据展示
 
+[1.4.3]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.3.5...v1.4.0
