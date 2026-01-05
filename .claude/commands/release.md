@@ -45,10 +45,15 @@ description: 自动化版本发布流程，包括版本号升级、CHANGELOG 更
 
   {简要的变更说明，2-3 行}
 
-  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+  🤖 Generated with [{当前 Coding Agent 名称}]({当前 Coding Agent URL})
 
-  Co-Authored-By: Claude <noreply@anthropic.com>
+  Co-Authored-By: {当前 Coding Agent 名称} <{当前 Coding Agent 邮箱}>
   ```
+  
+  **注意**：请根据实际使用的 Coding Agent 替换上述占位符：
+  - `{当前 Coding Agent 名称}`：当前使用的 AI 助手名称（如 "Claude Code"、"Cursor Composer" 等）
+  - `{当前 Coding Agent URL}`：对应的官网链接
+  - `{当前 Coding Agent 邮箱}`：对应的邮箱地址
 
 ### 5. 创建 Git Tag
 
