@@ -874,6 +874,7 @@ async function performStatusCheck(env: any): Promise<any> {
         const sockets = parsePortStatus(detail.ports, detail.device.portNumber);
         const availableCount = sockets.filter(s => s.status === 'available').length;
         const occupiedCount = sockets.filter(s => s.status === 'occupied').length;
+        const faultCount = sockets.filter(s => s.status === 'fault').length;
 
         const currentStatus: StationStatus = {
           id: station.id,
@@ -886,7 +887,7 @@ async function performStatusCheck(env: any): Promise<any> {
         };
 
         currentStations.push(currentStatus);
-        console.log(`     📊 在线: ${currentStatus.online ? '是' : '否'} | 插座: ${sockets.length}个 (空闲${availableCount}/占用${occupiedCount})`);
+        console.log(`     📊 在线: ${currentStatus.online ? '是' : '否'} | 插座: ${sockets.length}个 (空闲${availableCount}/占用${occupiedCount}/故障${faultCount})`);
 
         // 获取上一次的状态（从 D1）
         const previousStatus = await getLatestStatusD1(env.DB, station.id);
@@ -911,7 +912,11 @@ async function performStatusCheck(env: any): Promise<any> {
 
             console.log(`     🔔 检测到 ${changes.length} 个状态变化:`);
             changes.forEach(change => {
-              const statusEmoji = change.newStatus === 'occupied' ? '🔌' : '🔓';
+              const statusEmoji = change.newStatus === 'occupied'
+                ? '🔌'
+                : change.newStatus === 'fault'
+                  ? '⚠️'
+                  : '🔓';
               console.log(`        ${statusEmoji} 插座#${change.socketId}: ${change.oldStatus} → ${change.newStatus}`);
             });
           } else {

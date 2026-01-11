@@ -72,6 +72,10 @@
             background-color: #e74c3c;
         }
 
+        .legend-color.fault {
+            background-color: #f39c12;
+        }
+
         .charging-stations {
             display: grid;
             gap: 20px;
@@ -145,6 +149,11 @@
 
         .socket.occupied {
             background-color: #e74c3c;
+            color: white;
+        }
+
+        .socket.fault {
+            background-color: #f39c12;
             color: white;
         }
 
@@ -355,6 +364,10 @@
             border-left-color: #27ae60;
         }
 
+        .event-item.fault {
+            border-left-color: #f39c12;
+        }
+
         .event-time {
             font-size: 12px;
             color: #7f8c8d;
@@ -388,6 +401,21 @@
             align-items: center;
             gap: 8px;
             font-size: 14px;
+        }
+
+        .status-available {
+            color: #27ae60;
+            font-weight: bold;
+        }
+
+        .status-occupied {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        .status-fault {
+            color: #f39c12;
+            font-weight: bold;
         }
 
         .event-arrow {
@@ -841,6 +869,10 @@
                     <div class="legend-color occupied"></div>
                     <span>占用</span>
                 </div>
+                <div class="legend-item">
+                    <div class="legend-color fault"></div>
+                    <span>故障</span>
+                </div>
             </div>
         </div>
 
@@ -926,7 +958,7 @@
         <!-- 空闲提醒标签页结束 -->
 
         <!-- 版本号 -->
-        <div class="version">v1.5.0</div>
+        <div class="version">v1.5.1</div>
     </div>
 
     <!-- 插座事件弹窗 -->
@@ -967,6 +999,26 @@
             }
         ];
 
+        const STATUS_LABELS = {
+            available: "空闲",
+            occupied: "占用",
+            fault: "故障"
+        };
+
+        const STATUS_COLORS = {
+            available: "#27ae60",
+            occupied: "#e74c3c",
+            fault: "#f39c12"
+        };
+
+        function getStatusLabel(status) {
+            return STATUS_LABELS[status] || "未知";
+        }
+
+        function getStatusColor(status) {
+            return STATUS_COLORS[status] || "#7f8c8d";
+        }
+
         // 获取充电桩详情
         async function getStationDetail(simId) {
             try {
@@ -999,13 +1051,19 @@
         // 解析充电桩端口状态
         function parsePortStatus(ports, totalPorts) {
             const sockets = [];
-            // ports[0] 固定为0，无意义；ports[1]开始代表插座状态，0=空闲，1=占用
+            // ports[0] 固定为0，无意义；ports[1]开始代表插座状态，0=空闲，1=占用，-1=故障
             const portStatuses = ports.slice(1);
 
             for (let i = 0; i < Math.min(totalPorts, portStatuses.length); i++) {
+                const portStatus = portStatuses[i];
+                const status = portStatus === 0
+                    ? "available"
+                    : portStatus === -1
+                        ? "fault"
+                        : "occupied";
                 sockets.push({
                     id: i + 1,
-                    status: portStatuses[i] === 0 ? 'available' : 'occupied'
+                    status: status
                 });
             }
 
@@ -1074,6 +1132,7 @@
         function renderStation(station) {
             const availableCount = station.sockets.filter(s => s.status === 'available').length;
             const occupiedCount = station.sockets.filter(s => s.status === 'occupied').length;
+            const faultCount = station.sockets.filter(s => s.status === 'fault').length;
 
             // 如果充电桩离线或有错误，显示错误信息
             if (station.error || !station.online) {
@@ -1104,6 +1163,7 @@
                         <div class="station-stats">
                             <span>空闲: ${availableCount}</span>
                             <span>占用: ${occupiedCount}</span>
+                            <span>故障: ${faultCount}</span>
                             <span>总计: ${station.sockets.length}</span>
                         </div>
                         <div class="station-address" style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
@@ -1118,7 +1178,7 @@
                                  onclick="toggleSocketStatus(${station.id}, ${socket.id})"
                                  title="点击查看插座 ${socket.id} 的状态变化历史">
                                 <div class="socket-number">${socket.id}</div>
-                                <div class="socket-status">${socket.status === 'available' ? '空闲' : '占用'}</div>
+                                <div class="socket-status">${getStatusLabel(socket.status)}</div>
                                 <div class="socket-duration">${duration}</div>
                             </div>
                             `;
@@ -1197,7 +1257,7 @@
          * 计算插座当前状态的持续时间
          * @param {number} stationId - 充电桩ID
          * @param {number} socketId - 插座ID
-         * @param {string} currentStatus - 当前状态 ('available' 或 'occupied')
+         * @param {string} currentStatus - 当前状态 ('available'/'occupied'/'fault')
          * @returns {string} 时长字符串，格式为 "hh:mm" 或 "--"
          */
         function calculateSocketDuration(stationId, socketId, currentStatus) {
@@ -1279,8 +1339,8 @@
             if (cachedStation && cachedStation.sockets) {
                 const socket = cachedStation.sockets.find(s => s.id === socketId);
                 if (socket) {
-                    currentStatus = socket.status === 'available' ? '空闲' : '占用';
-                    statusColor = socket.status === 'available' ? '#27ae60' : '#e74c3c';
+                    currentStatus = getStatusLabel(socket.status);
+                    statusColor = getStatusColor(socket.status);
                 }
             }
 
@@ -1435,8 +1495,8 @@
 
         // 渲染单个事件
         function renderEvent(event) {
-            const oldStatusText = event.oldStatus === 'available' ? '空闲' : '占用';
-            const newStatusText = event.newStatus === 'available' ? '空闲' : '占用';
+            const oldStatusText = getStatusLabel(event.oldStatus);
+            const newStatusText = getStatusLabel(event.newStatus);
             const oldStatusClass = event.oldStatus;
             const newStatusClass = event.newStatus;
             const beijingTime = formatBeijingTime(event.timeString);

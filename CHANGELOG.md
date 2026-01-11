@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-01-12
+
+### Fixed
+- **故障插座状态识别**：端口状态 `-1` 现在会被识别为「故障」并在状态与事件中展示，避免被误判为占用
+
+### Changed
+- **状态展示与统计**：前端增加故障状态图例/颜色/计数，状态变化日志与统计输出包含故障
+
+### Technical Details
+- 修改文件：
+  - `status-tracker.ts`: `parsePortStatus` 支持 `-1` 故障状态解析
+  - `status-tracker.test.ts`: 新增故障端口解析测试用例
+  - `worker.ts`: 状态统计与日志输出包含故障
+  - `public/index.html`: 前端新增故障样式/图例/状态文案
+  - `types.ts`: 补充 `ports` 数组的 `-1=故障` 约定说明
+  - `package.json`: 版本号更新至 1.5.1
+
 ## [1.5.0] - 2026-01-11
 
 ### Fixed
@@ -397,6 +414,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 空闲提醒配置管理
   - 统计数据展示
 
+[1.5.1]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.3...v1.5.0
 [1.4.3]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.0...v1.4.1

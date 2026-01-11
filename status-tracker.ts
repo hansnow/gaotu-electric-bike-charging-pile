@@ -23,7 +23,7 @@ export const CHARGING_STATIONS = [
 ];
 
 // 插座状态
-export type SocketStatus = 'available' | 'occupied';
+export type SocketStatus = 'available' | 'occupied' | 'fault';
 
 // 插座信息
 export interface Socket {
@@ -66,13 +66,20 @@ export interface StatusSnapshot {
  */
 export function parsePortStatus(ports: number[], totalPorts: number): Socket[] {
   const sockets: Socket[] = [];
-  // ports[0] 固定为0，无意义；ports[1]开始代表插座状态，0=空闲，1=占用
+  // ports[0] 固定为0，无意义；ports[1]开始代表插座状态，0=空闲，1=占用，-1=故障
   const portStatuses = ports.slice(1);
 
   for (let i = 0; i < Math.min(totalPorts, portStatuses.length); i++) {
+    const portStatus = portStatuses[i];
+    const status: SocketStatus = portStatus === 0
+      ? 'available'
+      : portStatus === -1
+        ? 'fault'
+        : 'occupied';
+
     sockets.push({
       id: i + 1,
-      status: portStatuses[i] === 0 ? 'available' : 'occupied'
+      status
     });
   }
 

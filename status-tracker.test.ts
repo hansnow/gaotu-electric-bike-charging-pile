@@ -74,6 +74,18 @@ describe('parsePortStatus', () => {
       expect(socket).toEqual({ id: index + 1, status: 'occupied' });
     });
   });
+
+  it('应该识别故障端口状态', () => {
+    const ports = [0, 0, -1, 1];
+    const totalPorts = 3;
+
+    const result = parsePortStatus(ports, totalPorts);
+
+    expect(result).toHaveLength(3);
+    expect(result[0]).toEqual({ id: 1, status: 'available' });
+    expect(result[1]).toEqual({ id: 2, status: 'fault' });
+    expect(result[2]).toEqual({ id: 3, status: 'occupied' });
+  });
 });
 
 describe('detectStatusChanges', () => {
