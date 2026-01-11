@@ -347,6 +347,152 @@ export async function sendSummaryToLark(
 }
 
 /**
+ * 批量聚合消息内容（当同一分钟内有多个插座需要提醒时使用）
+ */
+export interface BatchAggregatedMessageContent {
+  /** 总插座数量 */
+  totalCount: number;
+  /** 空闲阈值（分钟） */
+  thresholdMinutes: number;
+  /** 按充电桩分组的插座列表 */
+  socketsByStation: Array<{
+    stationId: number;
+    stationName: string;
+    socketIds: number[];
+  }>;
+}
+
+/**
+ * 构建批量聚合飞书消息文本
+ *
+ * @param content 批量聚合消息内容
+ * @returns 消息文本
+ *
+ * @example
+ * ```
+ * 🔔 检测到 13 个充电桩插座空闲超过 5 分钟：
+ * - 3号充电桩：插座3,4,6,7,8,9,10,11,14,16,17,18,19
+ * ```
+ */
+function buildBatchAggregatedMessage(content: BatchAggregatedMessageContent): string {
+  const lines: string[] = [];
+
+  // 标题行
+  lines.push(`🔔 检测到 ${content.totalCount} 个充电桩插座空闲超过 ${content.thresholdMinutes} 分钟：`);
+
+  // 按充电桩分组列出插座
+  for (const station of content.socketsByStation) {
+    const socketList = station.socketIds.sort((a, b) => a - b).join(',');
+    lines.push(`- ${station.stationName}：插座${socketList}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * 发送批量聚合飞书消息（当同一分钟内有多个插座需要提醒时使用）
+ *
+ * @param config 飞书配置
+ * @param content 批量聚合消息内容
+ * @param fetchImpl fetch 实现（默认使用全局 fetch，可注入用于测试）
+ * @returns 发送结果
+ */
+export async function sendBatchAggregatedLarkMessage(
+  config: LarkConfig,
+  content: BatchAggregatedMessageContent,
+  fetchImpl: typeof fetch = fetch
+): Promise<LarkSendResult> {
+  const startTime = Date.now();
+
+  // 如果未启用，直接返回成功
+  if (!config.enabled) {
+    console.log('[IDLE_ALERT] 飞书批量聚合消息未启用，跳过发送');
+    return {
+      success: true,
+      elapsedMs: 0,
+    };
+  }
+
+  // 验证配置
+  if (!config.authToken) {
+    console.error('[IDLE_ALERT] 飞书 auth_token 未配置');
+    return {
+      success: false,
+      error: '飞书 auth_token 未配置',
+      elapsedMs: 0,
+    };
+  }
+
+  try {
+    // 构建消息文本
+    const messageText = buildBatchAggregatedMessage(content);
+
+    console.log('[IDLE_ALERT] 准备发送飞书批量聚合消息:', messageText);
+
+    // 构建请求体
+    const requestBody: LarkApiRequest = {
+      auth_token: config.authToken,
+      content: JSON.stringify({ text: messageText }),
+      chat_id: config.chatId,
+    };
+
+    // 发送到飞书 API
+    const response = await fetchImpl(LARK_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Cloudflare-Worker/Idle-Alert',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const elapsedMs = Date.now() - startTime;
+
+    // 解析响应
+    let responseData: LarkApiResponse;
+    try {
+      responseData = await response.json();
+    } catch (e) {
+      console.error('[IDLE_ALERT] 飞书批量聚合消息响应解析失败:', e);
+      return {
+        success: false,
+        error: '飞书 API 响应解析失败',
+        elapsedMs,
+      };
+    }
+
+    // 判断是否成功
+    if (responseData.success && responseData.data?.message_id) {
+      console.log(
+        `[IDLE_ALERT] 飞书批量聚合消息发送成功 (耗时 ${elapsedMs}ms)`,
+        `message_id: ${responseData.data.message_id}`
+      );
+      return {
+        success: true,
+        messageId: responseData.data.message_id,
+        elapsedMs,
+      };
+    } else {
+      console.error('[IDLE_ALERT] 飞书批量聚合消息发送失败:', responseData.error);
+      return {
+        success: false,
+        error: responseData.error || '飞书批量聚合消息发送失败',
+        elapsedMs,
+      };
+    }
+  } catch (error) {
+    const elapsedMs = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[IDLE_ALERT] 飞书批量聚合消息发送异常:', errorMessage);
+    return {
+      success: false,
+      error: errorMessage,
+      elapsedMs,
+    };
+  }
+}
+
+/**
  * 异步睡眠
  *
  * @param ms 毫秒数

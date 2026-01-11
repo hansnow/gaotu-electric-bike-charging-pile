@@ -23,8 +23,10 @@ import {
 import {
   sendLarkMessage,
   sendSummaryToLark,
+  sendBatchAggregatedLarkMessage,
   type LarkSendResult,
   type LarkConfig,
+  type BatchAggregatedMessageContent,
 } from './lark-sender';
 
 /**
@@ -55,7 +57,7 @@ export interface IdleAlertFlowResult {
  * 运行空闲提醒流程
  *
  * @param env 环境变量
- * @param ctx 执行上下文（用于 waitUntil）
+ * @param ctx 执行上下文（保留以兼容现有调用，但不再使用）
  * @param now 当前时间（可注入用于测试）
  * @returns 执行结果
  *
@@ -66,8 +68,8 @@ export interface IdleAlertFlowResult {
  * 3. 判断是否在时间窗口内
  * 4. 判断是否为工作日
  * 5. 检测空闲插座
- * 6. 发送 Webhook
- * 7. 保存日志
+ * 6. 发送 Webhook 和飞书消息
+ * 7. 同步保存日志（确保去重有效，防止并发执行时重复发送）
  */
 export async function runIdleAlertFlow(
   env: IdleAlertEnv,
@@ -344,7 +346,60 @@ export async function runIdleAlertFlow(
       chatId: config.lark_chat_id || undefined,
     };
 
+    // 7.1. 判断是否使用批量聚合消息（当同一分钟内有多个插座需要提醒时）
+    const useBatchAggregation = idleSockets.length >= 2;
+    let batchLarkResult: LarkSendResult | undefined;
+
+    if (useBatchAggregation && larkConfig.enabled) {
+      console.log(
+        `[IDLE_ALERT] 检测到 ${idleSockets.length} 个插座需要提醒，使用批量聚合消息`
+      );
+
+      // 按充电桩分组插座
+      const socketsByStation = new Map<
+        number,
+        { stationName: string; socketIds: number[] }
+      >();
+
+      for (const socket of idleSockets) {
+        if (!socketsByStation.has(socket.stationId)) {
+          socketsByStation.set(socket.stationId, {
+            stationName: socket.stationName,
+            socketIds: [],
+          });
+        }
+        socketsByStation.get(socket.stationId)!.socketIds.push(socket.socketId);
+      }
+
+      // 构建批量聚合消息内容
+      const batchContent: BatchAggregatedMessageContent = {
+        totalCount: idleSockets.length,
+        thresholdMinutes: config.idle_threshold_minutes,
+        socketsByStation: Array.from(socketsByStation.entries()).map(
+          ([stationId, data]) => ({
+            stationId,
+            stationName: data.stationName,
+            socketIds: data.socketIds,
+          })
+        ),
+      };
+
+      // 发送批量聚合飞书消息
+      batchLarkResult = await sendBatchAggregatedLarkMessage(larkConfig, batchContent);
+      console.log(
+        `[IDLE_ALERT] 批量聚合飞书消息发送${batchLarkResult.success ? '成功' : '失败'}，` +
+          `涵盖 ${idleSockets.length} 个插座`
+      );
+    }
+
+    // 7.2. 为每个插座发送 Webhook 并保存日志
     for (const socket of idleSockets) {
+      console.log(
+        `[IDLE_ALERT] 开始处理插座: ${socket.stationName} 插座 ${socket.socketId}，` +
+          `空闲时长 ${socket.idleMinutes} 分钟，` +
+          `空闲开始时间 ${new Date(socket.idleStartTime).toISOString()}`
+      );
+
       // 构建 Webhook Payload
       const payload = buildWebhookPayload(socket, config, bjTime);
 
@@ -358,25 +413,30 @@ export async function runIdleAlertFlow(
       totalSuccess += results.filter((r) => r.success).length;
       totalFailed += results.filter((r) => !r.success).length;
 
-      // 发送飞书消息
+      // 单条消息模式：为每个插座单独发送飞书消息
       let larkResult: LarkSendResult | undefined;
-      if (larkConfig.enabled) {
+      if (!useBatchAggregation && larkConfig.enabled) {
         larkResult = await sendLarkMessage(larkConfig, {
           stationId: socket.stationId,
           stationName: socket.stationName,
           socketId: socket.socketId,
           idleMinutes: socket.idleMinutes,
         });
+
+        console.log(
+          `[IDLE_ALERT] 飞书消息发送${larkResult.success ? '成功' : '失败'}: ${socket.stationName} 插座 ${socket.socketId}`
+        );
+      } else if (useBatchAggregation) {
+        // 批量聚合模式：使用批量消息的结果
+        larkResult = batchLarkResult;
       }
 
-      // 8. 保存日志（使用 waitUntil 异步执行，避免阻塞）
-      const saveLogsPromise = saveLogs(env.DB, socket, results, bjTime, larkResult);
-      if (ctx) {
-        ctx.waitUntil(saveLogsPromise);
-      } else {
-        // 如果没有 ctx（测试场景），同步等待
-        await saveLogsPromise;
-      }
+      // 8. 保存日志（同步执行，确保去重查询有效，避免并发执行时重复发送）
+      await saveLogs(env.DB, socket, results, bjTime, larkResult);
+      console.log(
+        `[IDLE_ALERT] 日志保存完成: ${socket.stationName} 插座 ${socket.socketId}，` +
+          `idle_start_time=${Math.floor(socket.idleStartTime / 1000)}`
+      );
     }
 
     console.log(

@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-01-11
+
+### Fixed
+- **周末误判为工作日**：修复节假日缓存逻辑，普通周末（未被 iCloud 日历标注的日期）现在能正确识别为非工作日，不再发送飞书通知
+- **同一分钟大量飞书通知**：新增批量聚合消息功能，当同一分钟内有多个插座超过空闲阈值时，只发送一条聚合消息，避免刷屏
+- **批量消息缺少配置验证**：补充 `sendBatchAggregatedLarkMessage` 的 `auth_token` 验证逻辑，与单条消息保持一致
+
+### Added
+- **批量聚合飞书消息**：当检测到 ≥2 个插座需要提醒时，发送聚合消息（如："🔔 检测到 13 个充电桩插座空闲超过 5 分钟：\n- 3号充电桩：插座3,4,6,7,8,9,10,11,14,16,17,18,19"）
+
+### Changed
+- **日志保存策略**：将日志保存从异步改为同步执行，确保去重机制在并发场景下有效工作
+
+### Technical Details
+- 修改文件：
+  - `idle-alert/holiday-checker.ts`: 修复周末判断逻辑，增加周末检测
+  - `idle-alert/lark-sender.ts`: 新增 `sendBatchAggregatedLarkMessage` 函数和相关接口
+  - `idle-alert/service.ts`: 修改发送逻辑，当有多个插座时使用批量聚合消息
+  - `package.json`: 版本号更新至 1.5.0
+  - `public/index.html`: 前端版本号更新至 v1.5.0
+
 ## [1.4.3] - 2026-01-05
 
 ### Fixed

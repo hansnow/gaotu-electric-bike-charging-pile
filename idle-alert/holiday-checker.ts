@@ -158,12 +158,27 @@ export function createHolidayChecker(
         // 使用事务批量写入
         const statements = batch.map((dateStr) => {
           const holidayInfo = holidayMap.get(dateStr);
-          // 如果在 holidayMap 中：
-          //   - isHoliday=true → is_holiday=1（节假日）
-          //   - isHoliday=false → is_holiday=0（调休补班日，需要上班）
-          // 如果不在 holidayMap 中：
-          //   - is_holiday=0（普通工作日）
-          const isHoliday = holidayInfo?.isHoliday ? 1 : 0;
+          let isHoliday = 0;
+
+          if (holidayInfo) {
+            // 如果在 holidayMap 中：
+            //   - isHoliday=true → is_holiday=1（节假日）
+            //   - isHoliday=false → is_holiday=0（调休补班日，需要上班）
+            isHoliday = holidayInfo.isHoliday ? 1 : 0;
+          } else {
+            // 如果不在 holidayMap 中，需要判断是否为周末
+            // 将 dateStr (YYYY-MM-DD) 转换为 Date 对象
+            const [year, month, day] = dateStr.split('-').map(Number);
+            // 注意：这里使用 UTC 时间创建 Date，因为 dateStr 已经是北京时间的日期
+            const dateObj = new Date(Date.UTC(year, month - 1, day));
+
+            // 判断是否为周末（使用 UTC 时间，因为 dateStr 已经是北京时间）
+            const dayOfWeek = dateObj.getUTCDay();
+            const isWeekendDay = dayOfWeek === 0 || dayOfWeek === 6; // 周日=0，周六=6
+
+            // 周末标记为非工作日（is_holiday=1），平日标记为工作日（is_holiday=0）
+            isHoliday = isWeekendDay ? 1 : 0;
+          }
 
           return db
             .prepare(
