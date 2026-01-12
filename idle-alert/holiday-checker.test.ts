@@ -57,7 +57,6 @@ END:VCALENDAR`;
       { date: '2026-01-02', name: '元旦（休）', isHoliday: true },
       { date: '2026-01-03', name: '元旦（休）', isHoliday: true },
       { date: '2026-01-04', name: '元旦（班）', isHoliday: false },
-      { date: '2026-01-05', name: '小寒', isHoliday: true },
     ]);
   });
 });
