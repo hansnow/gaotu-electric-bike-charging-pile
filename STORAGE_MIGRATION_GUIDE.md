@@ -387,7 +387,50 @@ export async function cleanupOldDataD1(
 }
 ```
 
-#### 5.2 更新 `status-tracker.ts`
+#### 5.2 数据清理与保留（D1，30天）
+
+建议对历史事件与提醒日志执行 30 天保留策略，避免数据库持续膨胀导致查询变慢。
+
+**清理范围**
+- `status_events`
+- `idle_alert_logs`
+- `idle_alert_summary_logs`
+- `quota_stats`
+
+**生产环境清理命令（30天保留）**
+
+```bash
+# 1. 状态变化事件（timestamp 毫秒）
+npx wrangler d1 execute gaotu-electric-bike-charging-pile-db --remote --command="DELETE FROM status_events WHERE timestamp < (CAST(strftime('%s','now') AS INTEGER) * 1000 - 30*24*60*60*1000)"
+
+# 2. 空闲提醒日志（按北京时间 log_date）
+npx wrangler d1 execute gaotu-electric-bike-charging-pile-db --remote --command="DELETE FROM idle_alert_logs WHERE log_date < date('now','+8 hours','-30 days')"
+
+# 3. 汇总消息日志（sent_at 秒）
+npx wrangler d1 execute gaotu-electric-bike-charging-pile-db --remote --command="DELETE FROM idle_alert_summary_logs WHERE sent_at < (CAST(strftime('%s','now') AS INTEGER) - 30*24*60*60)"
+
+# 4. 配额统计（按北京时间 date）
+npx wrangler d1 execute gaotu-electric-bike-charging-pile-db --remote --command="DELETE FROM quota_stats WHERE date < date('now','+8 hours','-30 days')"
+```
+
+> 本地环境清理请将 `--remote` 替换为 `--local`。
+
+**清理结果校验**
+
+```bash
+npx wrangler d1 execute gaotu-electric-bike-charging-pile-db --remote --command="SELECT 'status_events' as table_name, COUNT(*) as row_count, MIN(date(timestamp/1000, 'unixepoch', '+8 hours')) as oldest_date, MAX(date(timestamp/1000, 'unixepoch', '+8 hours')) as newest_date FROM status_events UNION ALL SELECT 'idle_alert_logs', COUNT(*), MIN(log_date), MAX(log_date) FROM idle_alert_logs UNION ALL SELECT 'idle_alert_summary_logs', COUNT(*), MIN(date(sent_at, 'unixepoch', '+8 hours')), MAX(date(sent_at, 'unixepoch', '+8 hours')) FROM idle_alert_summary_logs UNION ALL SELECT 'quota_stats', COUNT(*), MIN(date), MAX(date) FROM quota_stats;"
+```
+
+**注意事项**
+- 空闲提醒依赖 `status_events` 查询“最近一次 available”，保留期过短会导致长期空闲插座不再触发提醒，保留周期需覆盖业务可接受的最长空闲时间。
+- `/statistics` 与历史报表只保留 30 天数据。
+- `holiday_cache` 为未来节假日缓存，默认不纳入清理；若要限制为 30 天窗口（含未来），可额外执行：
+
+```bash
+npx wrangler d1 execute gaotu-electric-bike-charging-pile-db --remote --command="DELETE FROM holiday_cache WHERE date < date('now','+8 hours','-30 days') OR date > date('now','+8 hours','+30 days')"
+```
+
+#### 5.3 更新 `status-tracker.ts`
 
 1. 保留业务逻辑不变，仅调整存储层调用：
    - 将 `getLatestStatus` / `storeLatestStatus` / `storeEvents` / `getEvents` / `getWriteCount` / `incrementWriteCount` 重定向到 D1 适配器。
@@ -396,7 +439,7 @@ export async function cleanupOldDataD1(
 3. 处理事件写入时，传入 `timeString.substring(0, 10)` 作为 `event_date`。
 4. 新增工具函数 `dayDiff(start: string, end: string)`，用于计算日期范围天数（基于 UTC），供 `/statistics` 参数校验复用。
 
-#### 5.3 更新 `worker.ts`
+#### 5.4 更新 `worker.ts`
 
 ```typescript
 import { 
