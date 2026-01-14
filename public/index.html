@@ -958,7 +958,7 @@
         <!-- 空闲提醒标签页结束 -->
 
         <!-- 版本号 -->
-        <div class="version">v1.5.1</div>
+        <div class="version">v1.6.0</div>
     </div>
 
     <!-- 插座事件弹窗 -->
@@ -1055,15 +1055,18 @@
             const portStatuses = ports.slice(1);
 
             for (let i = 0; i < Math.min(totalPorts, portStatuses.length); i++) {
-                const portStatus = portStatuses[i];
-                const status = portStatus === 0
+                const portInfo = portStatuses[i];
+                const statusValue = typeof portInfo === "number" ? portInfo : portInfo?.status;
+                const statusSince = typeof portInfo === "number" ? null : portInfo?.statusSince ?? null;
+                const status = statusValue === 0
                     ? "available"
-                    : portStatus === -1
+                    : statusValue === -1
                         ? "fault"
                         : "occupied";
                 sockets.push({
                     id: i + 1,
-                    status: status
+                    status: status,
+                    statusSince: statusSince
                 });
             }
 
@@ -1071,7 +1074,8 @@
             for (let i = portStatuses.length; i < totalPorts; i++) {
                 sockets.push({
                     id: i + 1,
-                    status: 'available'
+                    status: 'available',
+                    statusSince: null
                 });
             }
 
@@ -1172,7 +1176,7 @@
                     </div>
                     <div class="sockets-grid">
                         ${station.sockets.map(socket => {
-                            const duration = calculateSocketDuration(station.id, socket.id, socket.status);
+                            const duration = calculateSocketDuration(socket.statusSince);
                             return `
                             <div class="socket ${socket.status}" data-socket-id="${socket.id}"
                                  onclick="toggleSocketStatus(${station.id}, ${socket.id})"
@@ -1207,7 +1211,7 @@
                         `.station[data-station-id="${station.id}"] .socket[data-socket-id="${socket.id}"] .socket-duration`
                     );
                     if (socketElement) {
-                        const duration = calculateSocketDuration(station.id, socket.id, socket.status);
+                        const duration = calculateSocketDuration(socket.statusSince);
                         socketElement.textContent = duration;
                     }
                 });
@@ -1255,40 +1259,16 @@
 
         /**
          * 计算插座当前状态的持续时间
-         * @param {number} stationId - 充电桩ID
-         * @param {number} socketId - 插座ID
-         * @param {string} currentStatus - 当前状态 ('available'/'occupied'/'fault')
+         * @param {number | null} statusSince - 状态开始时间戳（毫秒）
          * @returns {string} 时长字符串，格式为 "hh:mm" 或 "--"
          */
-        function calculateSocketDuration(stationId, socketId, currentStatus) {
-            // 如果没有事件缓存，返回 "--"
-            if (!allEventsCache || allEventsCache.length === 0) {
+        function calculateSocketDuration(statusSince) {
+            if (!statusSince) {
                 return '--';
             }
 
-            // 筛选出该插座的所有事件，按时间戳降序排序
-            const socketEvents = allEventsCache
-                .filter(event => event.stationId === stationId && event.socketId === socketId)
-                .sort((a, b) => b.timestamp - a.timestamp);
-
-            // 如果没有任何事件记录，返回 "--"
-            if (socketEvents.length === 0) {
-                return '--';
-            }
-
-            // 找到最后一次状态变化事件
-            // 如果最后一条事件的新状态与当前状态不一致，说明当前状态可能是最新的（还没有记录）
-            // 这种情况下，我们使用当前时间作为起始时间
-            const lastEvent = socketEvents[0];
-            
-            // 如果最后一条事件的新状态与当前状态一致，使用事件时间戳计算时长
-            if (lastEvent.newStatus === currentStatus) {
-                const durationMs = Date.now() - lastEvent.timestamp;
-                return formatDuration(durationMs);
-            } else {
-                // 状态不一致，可能是还没有记录最新的状态变化，返回 "--"
-                return '--';
-            }
+            const durationMs = Date.now() - statusSince;
+            return formatDuration(durationMs);
         }
 
         /**

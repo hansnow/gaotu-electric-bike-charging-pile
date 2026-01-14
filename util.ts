@@ -1,6 +1,6 @@
 import {
   ChargingDevice,
-  ChargingDeviceDetail,
+  ChargingDeviceDetailRaw,
   ApiResponse,
   NearbyDevicesRequest,
   DeviceDetailRequest
@@ -62,9 +62,9 @@ export async function getNearbyDevices(params: NearbyDevicesRequest): Promise<Ch
 /**
  * 获取充电桩详情
  * @param params 充电桩详情请求参数
- * @returns 充电桩详情
+ * @returns 充电桩详情（上游原始格式）
  */
-export async function getDeviceDetail(params: DeviceDetailRequest): Promise<ChargingDeviceDetail> {
+export async function getDeviceDetail(params: DeviceDetailRequest): Promise<ChargingDeviceDetailRaw> {
   const url = new URL('/portDetail', API_BASE_URL);
   url.searchParams.append('channelMessage', CHANNEL_MESSAGE);
 
@@ -99,7 +99,7 @@ export async function getDeviceDetail(params: DeviceDetailRequest): Promise<Char
     throw new Error(`HTTP error! status: ${response.status}`);
   }
 
-  const result: ApiResponse<ChargingDeviceDetail> = await response.json();
+  const result: ApiResponse<ChargingDeviceDetailRaw> = await response.json();
 
   if (!result.success || result.code !== 200) {
     throw new Error(`API error: ${result.message}`);

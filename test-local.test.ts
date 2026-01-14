@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getDeviceDetail } from './util';
-import type { ApiResponse, ChargingDeviceDetail, DeviceDetailRequest } from './types';
+import type { ApiResponse, ChargingDeviceDetailRaw, DeviceDetailRequest } from './types';
 
 const baseParams: DeviceDetailRequest = {
   simId: '867997075125699',
@@ -31,9 +31,9 @@ describe('getDeviceDetail', () => {
       device: {
         freePortCount: 2,
       },
-    } as ChargingDeviceDetail;
+    } as ChargingDeviceDetailRaw;
 
-    const responseBody: ApiResponse<ChargingDeviceDetail> = {
+    const responseBody: ApiResponse<ChargingDeviceDetailRaw> = {
       success: true,
       code: 200,
       message: 'ok',
@@ -67,18 +67,18 @@ describe('getDeviceDetail', () => {
   it('throws when HTTP response is not ok', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(createFetchResponse({} as ApiResponse<ChargingDeviceDetail>, false));
+      .mockResolvedValue(createFetchResponse({} as ApiResponse<ChargingDeviceDetailRaw>, false));
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(getDeviceDetail(baseParams)).rejects.toThrow('HTTP error! status: 500');
   });
 
   it('throws when API response indicates failure', async () => {
-    const responseBody: ApiResponse<ChargingDeviceDetail> = {
+    const responseBody: ApiResponse<ChargingDeviceDetailRaw> = {
       success: false,
       code: 500,
       message: 'API failed',
-      data: {} as ChargingDeviceDetail,
+      data: {} as ChargingDeviceDetailRaw,
     };
 
     const fetchMock = vi.fn().mockResolvedValue(createFetchResponse(responseBody));

@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-01-14
+
+### Added
+- **插座状态开始时间**：`/detail` 端口数据新增 `statusSince` 字段，返回最近一次状态变化的时间戳（无历史时为 null）
+
+### Changed
+- **/detail 端口结构**：`ports` 从数字数组升级为对象数组，保留 `ports[0]` 占位
+- **前端时长计算**：状态持续时间改为直接基于 `statusSince` 计算
+
+### Documentation
+- **接口文档更新**：README 与 API.md 示例同步新 `ports` 结构
+
+### Technical Details
+- 修改文件：
+  - `worker.ts`: `/detail` 拼装 `ports` 与 `statusSince`，查询每个插座最新事件
+  - `d1-storage.ts`: 新增 `getLatestSocketEventsD1`
+  - `types.ts`: 新增 `PortStatusInfo`，区分原始与对外详情类型
+  - `util.ts`: `getDeviceDetail` 返回原始详情类型
+  - `test-local.test.ts`: 适配原始详情类型
+  - `public/index.html`: 解析新 `ports` 结构并基于 `statusSince` 计算时长
+  - `README.md`: `/detail` 示例更新
+  - `API.md`: `/detail` 示例更新
+  - `package.json`: 版本号更新至 1.6.0
+  - `CHANGELOG.md`: 新增 1.6.0 记录
+
 ## [1.5.1] - 2026-01-12
 
 ### Fixed
@@ -414,6 +439,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 空闲提醒配置管理
   - 统计数据展示
 
+[1.6.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.3...v1.5.0
 [1.4.3]: https://github.com/hansnow/gaotu-electric-bike-charging-pile/compare/v1.4.2...v1.4.3

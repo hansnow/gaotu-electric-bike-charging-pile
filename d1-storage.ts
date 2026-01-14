@@ -50,6 +50,33 @@ export async function getLatestStatusD1(
 }
 
 /**
+ * 获取每个插座最新的状态变化事件
+ */
+export async function getLatestSocketEventsD1(
+  db: D1Database,
+  stationId: number
+): Promise<Array<{ socketId: number; newStatus: SocketStatus; timestamp: number }>> {
+  const result = await db.prepare(`
+    SELECT event.socket_id as socket_id, event.new_status as new_status, event.timestamp as timestamp
+    FROM status_events event
+    INNER JOIN (
+      SELECT socket_id, MAX(timestamp) as max_timestamp
+      FROM status_events
+      WHERE station_id = ?
+      GROUP BY socket_id
+    ) latest
+      ON event.socket_id = latest.socket_id AND event.timestamp = latest.max_timestamp
+    WHERE event.station_id = ?
+  `).bind(stationId, stationId).all();
+
+  return result.results.map(row => ({
+    socketId: row.socket_id as number,
+    newStatus: row.new_status as SocketStatus,
+    timestamp: row.timestamp as number
+  }));
+}
+
+/**
  * 批量存储事件到 D1
  */
 export async function storeEventsD1(

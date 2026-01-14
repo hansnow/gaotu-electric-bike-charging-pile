@@ -1,5 +1,5 @@
 import { getNearbyDevices, getDeviceDetail } from './util';
-import { NearbyDevicesRequest, DeviceDetailRequest } from './types';
+import { NearbyDevicesRequest, DeviceDetailRequest, ChargingDeviceDetail } from './types';
 import {
   CHARGING_STATIONS,
   parsePortStatus,
@@ -26,7 +26,8 @@ import {
   getEventsInRangeD1,
   getStatisticsD1,
   incrementQuotaStatsD1,
-  getQuotaStatsD1
+  getQuotaStatsD1,
+  getLatestSocketEventsD1
 } from './d1-storage';
 import { runIdleAlertFlow } from './idle-alert/service';
 import { loadConfig, updateConfig, type UpdateConfigPayload } from './idle-alert/config';
@@ -135,7 +136,33 @@ export default {
         };
 
         const detail = await getDeviceDetail(detailParams);
-        return new Response(JSON.stringify({ success: true, data: detail }), {
+        const station = CHARGING_STATIONS.find(item => item.simId === simId);
+        const latestSocketEvents = station
+          ? await getLatestSocketEventsD1(env.DB, station.id)
+          : [];
+        const latestSocketEventMap = new Map(
+          latestSocketEvents.map(event => [event.socketId, event])
+        );
+        const ports = detail.ports.map((status, index) => {
+          if (index === 0) {
+            return { status, statusSince: null };
+          }
+          const currentStatus = status === 0
+            ? 'available'
+            : status === -1
+              ? 'fault'
+              : 'occupied';
+          const latestEvent = latestSocketEventMap.get(index);
+          const statusSince = latestEvent && latestEvent.newStatus === currentStatus
+            ? latestEvent.timestamp
+            : null;
+          return { status, statusSince };
+        });
+        const detailWithStatusSince: ChargingDeviceDetail = {
+          ...detail,
+          ports
+        };
+        return new Response(JSON.stringify({ success: true, data: detailWithStatusSince }), {
           headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',

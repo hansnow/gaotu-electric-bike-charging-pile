@@ -528,7 +528,10 @@ Content-Type: application/json
 {
   "success": true,
   "data": {
-    "ports": [0, 1, 0, 1, ...],  // 插座状态数组
+    "ports": [
+      { "status": 0, "statusSince": null },
+      { "status": 1, "statusSince": 1762938823000 }
+    ],
     "device": {
       "id": 773287,
       "name": "中电金信自行车充电1号桩",

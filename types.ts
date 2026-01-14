@@ -277,76 +277,44 @@ export interface ChargingDevice {
   supportBlueTooth: number | null;
 }
 
-/**
- * 充电桩详情响应数据类型
- *
- * @remarks
- * 包含充电桩的详细信息、端口状态、错误信息等
- * 最重要的是 ports 数组和 device 对象
- */
-export interface ChargingDeviceDetail {
-  /** 商户承担费用：0=否，1=是 */
+export interface PortStatusInfo {
+  status: number;
+  statusSince: number | null;
+}
+
+export interface ChargingDeviceDetailRaw {
   isMerchantBears: number;
-
-  /** 是否可以开具发票：true=可以，false=不可以 */
   businessInvoiceFlag: boolean;
-
-  /** 扰码设备标志：0=正常，其他=扰码设备 */
   scramDeviceFlag: number;
-
-  /** 访问判断标志：0=正常访问 */
   accessJudgmentFlag: number;
-
-  /**
-   * 端口状态数组
-   *
-   * @remarks
-   * **重要约定**：
-   * - ports[0]: 固定为0，无实际意义，仅作占位符
-   * - ports[1]: 1号插座状态，0=空闲，1=占用，-1=故障
-   * - ports[2]: 2号插座状态，0=空闲，1=占用，-1=故障
-   * - ...
-   * - ports[n]: n号插座状态，0=空闲，1=占用，-1=故障
-   *
-   * **使用示例**：
-   * ```typescript
-   * // 统计空闲端口数量（跳过ports[0]）
-   * const freePorts = detail.ports.slice(1).filter(port => port === 0).length;
-   *
-   * // 获取1号插座状态
-   * const socket1Status = detail.ports[1]; // 0=空闲，1=占用
-   * ```
-   */
   ports: number[];
-
-  /** 是否正在充电：true=正在充电，false=未充电 */
   chargingFlag: boolean;
-
-  /** 设备错误消息，如"设备维护中"，空字符串表示正常 */
   errorMsg: string;
-
-  /** 是否需要通过App访问：0=不需要，1=需要 */
   accessWithApp: number;
-
-  /** 设备故障标志：0=正常，其他=故障 */
   machineFault: number;
-
-  /** 用户小区卡余额，null表示无余额或未设置 */
   userEstateCardBalance: number | null;
-
-  /** 是否为公众号用户：null表示非公众号用户 */
   isOfficialAccountFlag: number | null;
-
-  /** 是否更新经纬度：1=已更新，其他=未更新 */
   updateLatLng: number;
-
-  /** 是否为电子充电卡：false=否 */
   isElectronicChargeCard: boolean;
-
-  /** 是否为背景设备：false=否 */
   isBgDevice: boolean;
+  device: ChargingDevice;
+}
 
-  /** 设备详细信息，包含位置、状态、价格等完整数据 */
+export interface ChargingDeviceDetail {
+  isMerchantBears: number;
+  businessInvoiceFlag: boolean;
+  scramDeviceFlag: number;
+  accessJudgmentFlag: number;
+  ports: PortStatusInfo[];
+  chargingFlag: boolean;
+  errorMsg: string;
+  accessWithApp: number;
+  machineFault: number;
+  userEstateCardBalance: number | null;
+  isOfficialAccountFlag: number | null;
+  updateLatLng: number;
+  isElectronicChargeCard: boolean;
+  isBgDevice: boolean;
   device: ChargingDevice;
 }
 

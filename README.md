@@ -210,7 +210,12 @@ pnpm run deploy
 {
   "success": true,
   "data": {
-    "ports": [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0],
+    "ports": [
+      { "status": 0, "statusSince": null },
+      { "status": 1, "statusSince": 1762938823000 },
+      { "status": 1, "statusSince": 1762938823000 },
+      { "status": 0, "statusSince": 1762939123000 }
+    ],
     "chargingFlag": false,
     "errorMsg": "设备维护中",
     "device": {
@@ -325,7 +330,7 @@ pnpm run deploy
 - `params: DeviceDetailRequest` - 详情查询参数
 
 **返回：**
-- `Promise<ChargingDeviceDetail>` - 充电桩详情
+- `Promise<ChargingDeviceDetailRaw>` - 充电桩详情（上游原始结构）
 
 ## 测试流程说明
 
@@ -334,7 +339,7 @@ pnpm run deploy
 1. **获取充电桩列表**：使用示例坐标获取附近充电桩
 2. **筛选目标充电桩**：找到名称包含"中电金信"的充电桩
 3. **获取详情信息**：依次请求每个目标充电桩的详情
-4. **统计空闲端口**：计算 `ports` 数组中值为 0 的元素数量
+4. **统计空闲端口**：计算 `ports` 中 `status` 为 0 的插座数量（跳过占位的 `ports[0]`）
 
 ### 端口状态说明
 
