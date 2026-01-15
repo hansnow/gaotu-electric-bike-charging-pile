@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-01-15
+
+### Changed
+- **D1 查询优化**：`getLatestSocketEventsD1` 改用窗口函数替代聚合+JOIN，大幅降低 rows read（预计减少 70-80%）
+
+### Added
+- **数据库迁移 0006**：新增覆盖索引 `idx_events_station_socket_timestamp_status`，消除回表开销
+- **优化文档**：新增 `docs/query-optimization-analysis.md` 和 `docs/d1-query-optimization-deployment.md`
+
+### Technical Details
+- 修改文件：
+  - `d1-storage.ts`: `getLatestSocketEventsD1()` 使用 `ROW_NUMBER() OVER` 窗口函数
+  - `migrations/0006_add-covering-index-for-window-query.sql`: 创建覆盖索引
+  - `scripts/compare-query-plans.ts`: 执行计划对比工具
+  - `scripts/compare-query-plans.sql`: 旧版查询执行计划
+  - `scripts/new-query-plan.sql`: 新版查询执行计划
+  - `docs/query-optimization-analysis.md`: 详细优化分析报告
+  - `docs/d1-query-optimization-deployment.md`: 部署指南
+  - `CHANGELOG.md`: 新增 1.6.1 记录
+
+### Performance Impact
+- **Rows read**: 从 ~83行/次 降至 ~10-20行/次（减少 70-80%）
+- **Query duration**: 预计减少 30-50%
+- **优化点**: 消除 TEMP B-TREE、BLOOM FILTER、JOIN 开销和回表访问
+
 ## [1.6.0] - 2026-01-14
 
 ### Added
