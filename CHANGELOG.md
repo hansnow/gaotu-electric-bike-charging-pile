@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-01-20
+
+### Added
+- **故障状态防抖过滤**：过滤短暂的瞬时故障（硬件抖动），只有当故障持续超过阈值（默认3分钟）时才记录状态变更事件
+- **新增 pending_faults 表**：用于存储待确认的故障状态，支持防抖逻辑
+- **防抖配置**：支持通过环境变量 `FAULT_DEBOUNCE_MINUTES` 自定义故障确认阈值
+
+### Changed
+- **状态变更检测逻辑**：
+  - 检测到 `→ fault` 变化时，先存入待确认队列，不立即记录事件
+  - 检测到 `fault →` 恢复时，检查故障是否已超过阈值，超过则记录故障+恢复事件，未超过则过滤
+  - 每次检查时确认超时的故障并清理已恢复的待确认记录
+
+### Technical Details
+- 新增文件：
+  - `fault-debounce.ts`: 防抖逻辑模块，包含 `addPendingFault`、`removePendingFault`、`isPendingFault`、`confirmPendingFaults`、`cleanupRecoveredFaults` 等函数
+  - `fault-debounce.test.ts`: 防抖逻辑单元测试（16个测试用例）
+  - `migrations/0007_fault-debounce.sql`: 创建 `pending_faults` 表和索引
+- 修改文件：
+  - `worker.ts`: 集成防抖逻辑到 `performStatusCheck` 函数，导入 `SocketStatus` 类型
+  - `package.json`: 版本号更新至 1.7.0
+  - `public/index.html`: 版本号更新至 v1.7.0
+  - `CHANGELOG.md`: 新增 1.7.0 记录
+
+### Problem Solved
+- **问题**：3号充电桩插座频繁出现持续1-2分钟的「故障」状态，这些是硬件抖动导致的假故障，产生大量无意义的状态变更事件记录
+- **解决**：引入故障防抖机制，只记录持续超过阈值的真实故障，过滤短暂的瞬时故障
+
 ## [1.6.1] - 2026-01-15
 
 ### Changed

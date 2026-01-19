@@ -16,7 +16,8 @@ import {
   dayDiff,
   StationStatus,
   StatusChangeEvent,
-  StatusSnapshot
+  StatusSnapshot,
+  type SocketStatus
 } from './status-tracker';
 import {
   storeLatestStatusD1,
@@ -32,6 +33,15 @@ import {
 import { runIdleAlertFlow } from './idle-alert/service';
 import { loadConfig, updateConfig, type UpdateConfigPayload } from './idle-alert/config';
 import { sendToAll, type WebhookPayload } from './idle-alert/alert-sender';
+import {
+  addPendingFault,
+  removePendingFault,
+  isPendingFault,
+  confirmPendingFaults,
+  cleanupRecoveredFaults,
+  getFaultDebounceConfig,
+  type FaultDebounceConfig
+} from './fault-debounce';
 
 /**
  * Cloudflare Worker 入口文件
@@ -876,11 +886,17 @@ async function performStatusCheck(env: any): Promise<any> {
 
   console.log(`📍 开始检查状态: ${timeString}`);
 
+  // 获取故障防抖配置
+  const debounceConfig = getFaultDebounceConfig(env);
+
   const currentStations: StationStatus[] = [];
   const allEvents: StatusChangeEvent[] = [];
   let hasAnyChange = false; // 标记是否有任何状态变化
   let d1ReadCount = 0;
   let d1WriteCount = 0;
+
+  // 用于存储当前所有插座状态，用于清理已恢复的故障
+  const currentSocketsMap = new Map<number, Map<number, SocketStatus>>();
 
   for (const station of CHARGING_STATIONS) {
     try {
@@ -914,6 +930,14 @@ async function performStatusCheck(env: any): Promise<any> {
         };
 
         currentStations.push(currentStatus);
+        
+        // 存储当前插座状态到 Map
+        const stationSocketsMap = new Map<number, SocketStatus>();
+        sockets.forEach(socket => {
+          stationSocketsMap.set(socket.id, socket.status);
+        });
+        currentSocketsMap.set(station.id, stationSocketsMap);
+
         console.log(`     📊 在线: ${currentStatus.online ? '是' : '否'} | 插座: ${sockets.length}个 (空闲${availableCount}/占用${occupiedCount}/故障${faultCount})`);
 
         // 获取上一次的状态（从 D1）
@@ -935,17 +959,70 @@ async function performStatusCheck(env: any): Promise<any> {
           if (changes.length > 0) {
             stationHasChange = true;
             hasAnyChange = true;
-            allEvents.push(...changes);
 
-            console.log(`     🔔 检测到 ${changes.length} 个状态变化:`);
-            changes.forEach(change => {
-              const statusEmoji = change.newStatus === 'occupied'
-                ? '🔌'
-                : change.newStatus === 'fault'
-                  ? '⚠️'
-                  : '🔓';
-              console.log(`        ${statusEmoji} 插座#${change.socketId}: ${change.oldStatus} → ${change.newStatus}`);
-            });
+            // 处理每个状态变化，应用防抖逻辑
+            for (const change of changes) {
+              // 情况1: 状态变为 fault（需要防抖）
+              if (change.newStatus === 'fault') {
+                // 存入待确认队列，不立即记录事件
+                await addPendingFault(
+                  env.DB,
+                  change.stationId,
+                  change.socketId,
+                  change.oldStatus,
+                  change.timestamp
+                );
+                d1WriteCount++;
+                console.log(`        ⏳ 插座#${change.socketId}: ${change.oldStatus} → fault (待确认，阈值: ${debounceConfig.fault_debounce_minutes}分钟)`);
+              }
+              // 情况2: 从 fault 恢复（需要检查是否在待确认中）
+              else if (change.oldStatus === 'fault') {
+                const pending = await isPendingFault(env.DB, change.stationId, change.socketId);
+                if (pending) {
+                  // 检查故障是否已经超过阈值
+                  const thresholdMs = debounceConfig.fault_debounce_minutes * 60 * 1000;
+                  const faultDuration = timestamp - pending.detected_at;
+                  
+                  if (faultDuration >= thresholdMs) {
+                    // 故障已超过阈值，需要记录故障事件和恢复事件
+                    // 1. 生成故障事件（使用检测到故障的时间戳）
+                    const faultEvent: StatusChangeEvent = {
+                      id: `${change.stationId}-${change.socketId}-${pending.detected_at}`,
+                      stationId: change.stationId,
+                      stationName: change.stationName,
+                      socketId: change.socketId,
+                      oldStatus: pending.old_status,
+                      newStatus: 'fault',
+                      timestamp: pending.detected_at,
+                      timeString: getTimeString(new Date(pending.detected_at))
+                    };
+                    allEvents.push(faultEvent);
+                    
+                    // 2. 记录恢复事件
+                    allEvents.push(change);
+                    
+                    console.log(`        🔔 插座#${change.socketId}: ${pending.old_status} → fault → ${change.newStatus} (故障持续${Math.round(faultDuration / 60000)}分钟，已超阈值，记录故障+恢复事件)`);
+                  } else {
+                    // 故障未超过阈值，是短暂故障，不记录任何事件
+                    console.log(`        ✅ 插座#${change.socketId}: fault → ${change.newStatus} (短暂故障${Math.round(faultDuration / 60000)}分钟，已过滤)`);
+                  }
+                  
+                  // 删除待确认记录
+                  await removePendingFault(env.DB, change.stationId, change.socketId);
+                  d1WriteCount++;
+                } else {
+                  // 不在待确认中，说明是已确认的故障恢复，正常记录事件
+                  allEvents.push(change);
+                  console.log(`        🔄 插座#${change.socketId}: fault → ${change.newStatus} (已确认故障恢复)`);
+                }
+              }
+              // 情况3: 其他状态变化（正常记录）
+              else {
+                allEvents.push(change);
+                const statusEmoji = change.newStatus === 'occupied' ? '🔌' : '🔓';
+                console.log(`        ${statusEmoji} 插座#${change.socketId}: ${change.oldStatus} → ${change.newStatus}`);
+              }
+            }
           } else {
             console.log(`     ✓ 无状态变化`);
           }
@@ -970,6 +1047,50 @@ async function performStatusCheck(env: any): Promise<any> {
     } catch (error) {
       console.error(`     ❌ 处理出错:`, error instanceof Error ? error.message : String(error));
     }
+  }
+
+  // 处理待确认队列：确认超时的故障
+  try {
+    // 构建 stationId -> stationName 的映射
+    const stationNameMap = new Map<number, string>();
+    for (const station of CHARGING_STATIONS) {
+      stationNameMap.set(station.id, station.name);
+    }
+
+    // 只调用一次，确认所有超时的故障
+    const confirmedFaults = await confirmPendingFaults(
+      env.DB,
+      timestamp,
+      debounceConfig,
+      stationNameMap
+    );
+
+    if (confirmedFaults.length > 0) {
+      // 将确认的故障事件添加到 allEvents，统一在后面存储
+      allEvents.push(...confirmedFaults);
+      
+      // 删除已确认的待确认记录
+      await env.DB.batch(
+        confirmedFaults.map(event =>
+          env.DB.prepare(`
+            DELETE FROM pending_faults
+            WHERE station_id = ? AND socket_id = ?
+          `).bind(event.stationId, event.socketId)
+        )
+      );
+      d1WriteCount++;
+      
+      console.log(`🔔 确认了 ${confirmedFaults.length} 个持续故障（超过${debounceConfig.fault_debounce_minutes}分钟阈值）`);
+    }
+  } catch (error) {
+    console.error('处理待确认故障失败:', error);
+  }
+
+  // 清理已恢复的待确认故障
+  try {
+    await cleanupRecoveredFaults(env.DB, currentSocketsMap);
+  } catch (error) {
+    console.error('清理已恢复故障失败:', error);
   }
 
   // 存储状态变化事件到 D1
